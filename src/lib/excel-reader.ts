@@ -179,7 +179,13 @@ export function readPosSales(clientId: string): PosSalesRow[] {
   if (cache) {
     return cache.posSales
   }
-  // キャッシュがなければ自動リフレッシュ
+  // Vercel環境ではエクセルがないのでキャッシュがなければ空配列を返す
+  const source = DATA_SOURCES[clientId]
+  if (!source || !fs.existsSync(source.path)) {
+    console.warn(`キャッシュが見つかりません: ${clientId}`)
+    return []
+  }
+  // ローカル環境ではキャッシュがなければ自動リフレッシュ
   const result = refreshCache(clientId)
   if (!result.success) {
     throw new Error(result.error)
@@ -193,7 +199,13 @@ export function readPosItems(clientId: string): PosItemRow[] {
   if (cache) {
     return cache.posItems
   }
-  // キャッシュがなければ自動リフレッシュ
+  // Vercel環境ではエクセルがないのでキャッシュがなければ空配列を返す
+  const source = DATA_SOURCES[clientId]
+  if (!source || !fs.existsSync(source.path)) {
+    console.warn(`キャッシュが見つかりません: ${clientId}`)
+    return []
+  }
+  // ローカル環境ではキャッシュがなければ自動リフレッシュ
   const result = refreshCache(clientId)
   if (!result.success) {
     throw new Error(result.error)
