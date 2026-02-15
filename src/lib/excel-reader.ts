@@ -6,14 +6,69 @@ import * as path from 'path'
 const CACHE_DIR = path.join(process.cwd(), '.cache')
 
 // クライアントごとのデータソース設定
-const DATA_SOURCES: Record<string, { path: string; sheets: { posSales: string; posItems: string } }> = {
+interface DataSource {
+  path: string
+  folder: string
+  sheets: { posSales: string; posItems: string }
+}
+
+const DATA_SOURCES: Record<string, DataSource> = {
   'junestory': {
     path: 'C:/Users/yasuh/OneDrive - 株式会社日本コンサルタントグループ　/MyDocuments/00_Junes/2026年10月期_データ/POS分析_ジュネストリー様2.xlsm',
+    folder: 'C:/Users/yasuh/OneDrive - 株式会社日本コンサルタントグループ　/MyDocuments/00_Junes',
     sheets: {
       posSales: 'POS売上',
       posItems: 'POS単品',
     },
   },
+}
+
+// データソース情報を取得
+export interface ClientDataInfo {
+  hasDataSource: boolean
+  fileName: string | null
+  filePath: string | null
+  folderPath: string | null
+  cacheUpdatedAt: string | null
+  hasCache: boolean
+}
+
+export function getClientDataInfo(clientId: string): ClientDataInfo {
+  const source = DATA_SOURCES[clientId]
+  if (!source) {
+    return {
+      hasDataSource: false,
+      fileName: null,
+      filePath: null,
+      folderPath: null,
+      cacheUpdatedAt: getCacheUpdatedAt(clientId),
+      hasCache: hasCacheData(clientId),
+    }
+  }
+
+  // ファイル名を抽出
+  const fileName = source.path.split('/').pop() || null
+
+  return {
+    hasDataSource: true,
+    fileName,
+    filePath: source.path,
+    folderPath: source.folder,
+    cacheUpdatedAt: getCacheUpdatedAt(clientId),
+    hasCache: hasCacheData(clientId),
+  }
+}
+
+// データソースを追加/更新
+export function setDataSource(clientId: string, filePath: string, folderPath: string): void {
+  DATA_SOURCES[clientId] = {
+    path: filePath,
+    folder: folderPath,
+    sheets: {
+      posSales: 'POS売上',
+      posItems: 'POS単品',
+    },
+  }
 }
 
 export interface PosSalesRow {

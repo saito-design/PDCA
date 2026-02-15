@@ -3,6 +3,36 @@ import { requireAuth } from '@/lib/auth'
 import { getSupabaseServer } from '@/lib/supabase'
 import { getStoreList } from '@/lib/excel-reader'
 import { ApiResponse, Entity } from '@/lib/types'
+import * as fs from 'fs'
+import * as path from 'path'
+
+// ローカル保存用のパス
+const LOCAL_ENTITIES_PATH = path.join(process.cwd(), '.cache', 'entities.json')
+
+// ローカルエンティティを読み込む
+function loadLocalEntities(): Record<string, Entity[]> {
+  try {
+    if (fs.existsSync(LOCAL_ENTITIES_PATH)) {
+      return JSON.parse(fs.readFileSync(LOCAL_ENTITIES_PATH, 'utf-8'))
+    }
+  } catch {
+    console.warn('ローカルエンティティ読み込みエラー')
+  }
+  return {}
+}
+
+// ローカルエンティティを保存
+function saveLocalEntities(entities: Record<string, Entity[]>): void {
+  try {
+    const dir = path.dirname(LOCAL_ENTITIES_PATH)
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
+    }
+    fs.writeFileSync(LOCAL_ENTITIES_PATH, JSON.stringify(entities, null, 2))
+  } catch (e) {
+    console.error('ローカルエンティティ保存エラー:', e)
+  }
+}
 
 // ジュネストリーの店舗一覧をエクセルから取得
 function getJunestoryEntities(): Entity[] {
@@ -118,15 +148,24 @@ export async function GET(
 
       // ジュネストリーの場合はエクセルから店舗一覧を取得
       if (clientId === 'junestory') {
+        const junestoryEntities = getJunestoryEntities()
+        // ローカル保存されたエンティティも追加
+        const localEntities = loadLocalEntities()
+        const localForClient = localEntities[clientId] || []
         return NextResponse.json({
           success: true,
-          data: getJunestoryEntities(),
+          data: [...junestoryEntities, ...localForClient],
         })
       }
 
+      // デモデータとローカルデータをマージ
+      const localEntities = loadLocalEntities()
+      const localForClient = localEntities[clientId] || []
+      const demoForClient = demoEntities[clientId] || []
+
       return NextResponse.json({
         success: true,
-        data: demoEntities[clientId] || [],
+        data: [...demoForClient, ...localForClient],
       })
     }
   } catch (error) {
@@ -139,6 +178,68 @@ export async function GET(
     console.error('Get entities error:', error)
     return NextResponse.json(
       { success: false, error: '部署/店舗一覧の取得に失敗しました' },
+      { status: 500 }
+    )
+  }
+}
+
+// 部署/店舗追加
+export async function POST(
+  request: NextRequest,
+  context: RouteParams
+): Promise<NextResponse<ApiResponse<Entity>>> {
+  try {
+    await requireAuth()
+    const { clientId } = await context.params
+    const body = await request.json()
+    const { name } = body
+
+    // バリデーション
+    if (!name || typeof name !== 'string' || name.length > 100) {
+      return NextResponse.json(
+        { success: false, error: '部署/店舗名が無効です' },
+        { status: 400 }
+      )
+    }
+
+    // 新しいエンティティを作成
+    const newEntity: Entity = {
+      id: `${clientId}-${Date.now()}`,
+      client_id: clientId,
+      name,
+      sort_order: 100,
+      created_at: new Date().toISOString(),
+    }
+
+    // Supabaseに保存を試みる
+    try {
+      const supabase = getSupabaseServer()
+      const { error } = await supabase.from('entities').insert(newEntity)
+      if (error) throw error
+    } catch {
+      // Supabase未接続時はローカル保存
+      const localEntities = loadLocalEntities()
+      if (!localEntities[clientId]) {
+        localEntities[clientId] = []
+      }
+      localEntities[clientId].push(newEntity)
+      saveLocalEntities(localEntities)
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: newEntity,
+    })
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Unauthorized') {
+      return NextResponse.json(
+        { success: false, error: '認証が必要です' },
+        { status: 401 }
+      )
+    }
+    console.error('Add entity error:', error)
+    return NextResponse.json(
+      { success: false, error: '部署/店舗の追加に失敗しました' },
       { status: 500 }
     )
   }
