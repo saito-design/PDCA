@@ -13,9 +13,23 @@ function cleanEnvVar(val: string | undefined): string | undefined {
   return clean.replace(/\\n/g, '\n')
 }
 
+function getPrivateKey(): string | undefined {
+  // Base64エンコードされたキーを優先
+  const base64Key = process.env.GOOGLE_PRIVATE_KEY_BASE64
+  if (base64Key) {
+    try {
+      return Buffer.from(base64Key, 'base64').toString('utf-8')
+    } catch {
+      console.warn('Base64デコードに失敗')
+    }
+  }
+  // 通常のキー
+  return cleanEnvVar(process.env.GOOGLE_PRIVATE_KEY)
+}
+
 function getAuth() {
   const email = cleanEnvVar(process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL)
-  const key = cleanEnvVar(process.env.GOOGLE_PRIVATE_KEY)
+  const key = getPrivateKey()
 
   if (!email || !key) {
     throw new Error('Google Drive credentials are not configured')
