@@ -94,7 +94,7 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
     const pdcaFolderId = getPdcaFolderId()
     console.log('POST /api/clients: pdcaFolderId =', pdcaFolderId)
 
-    const clientFolderId = await ensureFolder(clientId, pdcaFolderId)
+    const clientFolderId = await ensureFolder(name.trim(), pdcaFolderId)
     console.log('POST /api/clients: clientFolderId =', clientFolderId)
 
     const newClient: Client = {
