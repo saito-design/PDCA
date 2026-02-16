@@ -194,7 +194,7 @@ export async function ensureFolder(
   parentId: string
 ): Promise<string> {
   console.log('ensureFolder: searching for', folderName, 'in', parentId)
-  const existing = await findFileByName(folderName, parentId)
+  const existing = await findFileByName(folderName, parentId, 'application/vnd.google-apps.folder')
   if (existing) {
     console.log('ensureFolder: found existing folder', existing.id)
     return existing.id!

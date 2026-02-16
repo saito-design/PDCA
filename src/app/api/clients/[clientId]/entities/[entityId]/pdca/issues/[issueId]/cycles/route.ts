@@ -1,35 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
 import { ApiResponse, PdcaCycle, PdcaStatus } from '@/lib/types'
-import * as fs from 'fs'
-import * as path from 'path'
+import {
+  isDriveConfigured,
+  getPdcaFolderId,
+  ensureFolder,
+  loadJsonFromFolder,
+  saveJsonToFolder,
+} from '@/lib/drive'
 
-// ローカル保存用のパス
-const LOCAL_CYCLES_PATH = path.join(process.cwd(), '.cache', 'pdca-cycles.json')
+const CYCLES_FILENAME = 'pdca-cycles.json'
 
-// ローカルサイクルを読み込む
-function loadLocalCycles(): PdcaCycle[] {
-  try {
-    if (fs.existsSync(LOCAL_CYCLES_PATH)) {
-      return JSON.parse(fs.readFileSync(LOCAL_CYCLES_PATH, 'utf-8'))
-    }
-  } catch {
-    console.warn('ローカルサイクル読み込みエラー')
-  }
-  return []
+// 企業フォルダを取得または作成
+async function getClientFolder(clientId: string): Promise<string> {
+  const pdcaFolderId = getPdcaFolderId()
+  return await ensureFolder(clientId, pdcaFolderId)
 }
 
-// ローカルサイクルを保存
-function saveLocalCycles(cycles: PdcaCycle[]): void {
+// Google Driveからサイクルを読み込む
+async function loadCycles(clientFolderId: string): Promise<PdcaCycle[]> {
   try {
-    const dir = path.dirname(LOCAL_CYCLES_PATH)
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true })
-    }
-    fs.writeFileSync(LOCAL_CYCLES_PATH, JSON.stringify(cycles, null, 2))
-  } catch (e) {
-    console.error('ローカルサイクル保存エラー:', e)
+    const result = await loadJsonFromFolder<PdcaCycle[]>(CYCLES_FILENAME, clientFolderId)
+    return result?.data || []
+  } catch (error) {
+    console.warn('サイクル読み込みエラー:', error)
+    return []
   }
+}
+
+// Google Driveにサイクルを保存
+async function saveCycles(cycles: PdcaCycle[], clientFolderId: string): Promise<void> {
+  await saveJsonToFolder(cycles, CYCLES_FILENAME, clientFolderId)
 }
 
 type RouteParams = {
@@ -52,10 +53,17 @@ export async function GET(
       )
     }
 
-    const allCycles = loadLocalCycles()
-    const filtered = allCycles.filter(
-      (c) => c.client_id === clientId && c.issue_id === issueId
-    )
+    // Google Driveが未設定の場合
+    if (!isDriveConfigured()) {
+      return NextResponse.json({
+        success: true,
+        data: [],
+      })
+    }
+
+    const clientFolderId = await getClientFolder(clientId)
+    const allCycles = await loadCycles(clientFolderId)
+    const filtered = allCycles.filter((c) => c.issue_id === issueId)
 
     // サイクル日付の降順でソート
     filtered.sort((a, b) => new Date(b.cycle_date).getTime() - new Date(a.cycle_date).getTime())
@@ -96,6 +104,14 @@ export async function POST(
       )
     }
 
+    // Google Driveが未設定の場合はエラー
+    if (!isDriveConfigured()) {
+      return NextResponse.json(
+        { success: false, error: 'Google Driveが設定されていません' },
+        { status: 500 }
+      )
+    }
+
     const { cycle_date, situation, issue, action, target, status } = body
 
     // バリデーション
@@ -127,9 +143,10 @@ export async function POST(
       updated_at: new Date().toISOString(),
     }
 
-    const allCycles = loadLocalCycles()
+    const clientFolderId = await getClientFolder(clientId)
+    const allCycles = await loadCycles(clientFolderId)
     allCycles.push(newCycle)
-    saveLocalCycles(allCycles)
+    await saveCycles(allCycles, clientFolderId)
 
     return NextResponse.json({
       success: true,
@@ -167,6 +184,14 @@ export async function PATCH(
       )
     }
 
+    // Google Driveが未設定の場合はエラー
+    if (!isDriveConfigured()) {
+      return NextResponse.json(
+        { success: false, error: 'Google Driveが設定されていません' },
+        { status: 500 }
+      )
+    }
+
     const { id, situation, issue, action, target, status } = body
 
     if (!id) {
@@ -176,8 +201,9 @@ export async function PATCH(
       )
     }
 
-    const allCycles = loadLocalCycles()
-    const idx = allCycles.findIndex((c) => c.id === id && c.client_id === clientId && c.issue_id === issueId)
+    const clientFolderId = await getClientFolder(clientId)
+    const allCycles = await loadCycles(clientFolderId)
+    const idx = allCycles.findIndex((c) => c.id === id && c.issue_id === issueId)
 
     if (idx === -1) {
       return NextResponse.json(
@@ -194,7 +220,7 @@ export async function PATCH(
     if (status !== undefined) allCycles[idx].status = status
     allCycles[idx].updated_at = new Date().toISOString()
 
-    saveLocalCycles(allCycles)
+    await saveCycles(allCycles, clientFolderId)
 
     return NextResponse.json({
       success: true,

@@ -235,8 +235,40 @@ export default function DashboardPage({ params }: PageProps) {
   }
 
   const handleSavePdca = async (data: { situation: string; issue: string; action: string; target: string }) => {
-    console.log('Save PDCA:', data)
-    // TODO: APIで保存
+    try {
+      const res = await fetch(
+        `/api/clients/${clientId}/entities/${entityId}/pdca/issues/issue-1/cycles`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            cycle_date: new Date().toISOString().split('T')[0],
+            situation: data.situation,
+            issue: data.issue,
+            action: data.action,
+            target: data.target,
+            status: 'open',
+          }),
+        }
+      )
+      const result = await res.json()
+      if (result.success) {
+        // 保存成功 - サイクル一覧を再取得
+        const cyclesRes = await fetch(
+          `/api/clients/${clientId}/entities/${entityId}/pdca/issues/issue-1/cycles`
+        )
+        const cyclesData = await cyclesRes.json()
+        if (cyclesData.success) {
+          setCycles(cyclesData.data)
+        }
+        alert('保存しました')
+      } else {
+        alert('保存に失敗しました: ' + result.error)
+      }
+    } catch (error) {
+      console.error('Save PDCA error:', error)
+      alert('保存に失敗しました')
+    }
   }
 
   const handleStoreChange = (store: string) => {
