@@ -33,6 +33,13 @@ function getDrive() {
 }
 
 /**
+ * Check if folder ID is a shared drive root.
+ */
+function isSharedDriveRoot(folderId: string): boolean {
+  return folderId.startsWith('0A')
+}
+
+/**
  * Lists files in a specific folder.
  */
 export async function listFilesInFolder(
@@ -42,7 +49,6 @@ export async function listFilesInFolder(
 ) {
   const drive = getDrive()
   const query = `'${folderId}' in parents and trashed = false${q ? ` and ${q}` : ''}`
-  const isSharedDrive = folderId.startsWith('0A')
 
   const res = await drive.files.list({
     q: query,
@@ -51,7 +57,7 @@ export async function listFilesInFolder(
     pageSize: 100,
     includeItemsFromAllDrives: true,
     supportsAllDrives: true,
-    ...(isSharedDrive && { driveId: folderId, corpora: 'drive' }),
+    corpora: 'allDrives',
   })
 
   return res.data.files || []
@@ -153,4 +159,72 @@ export async function ensureFolder(
     supportsAllDrives: true,
   })
   return res.data.id!
+}
+
+/**
+ * Reads file content by file ID.
+ */
+export async function readFile(fileId: string): Promise<string> {
+  const drive = getDrive()
+  const res = await drive.files.get({
+    fileId,
+    alt: 'media',
+    supportsAllDrives: true,
+  }, { responseType: 'text' })
+  return res.data as string
+}
+
+/**
+ * Reads JSON file and parses it.
+ */
+export async function readJsonFile<T>(fileId: string): Promise<T> {
+  const content = await readFile(fileId)
+  return JSON.parse(content)
+}
+
+/**
+ * Loads JSON file by name from a folder. Returns null if not found.
+ */
+export async function loadJsonFromFolder<T>(
+  filename: string,
+  folderId: string
+): Promise<{ data: T; fileId: string } | null> {
+  const file = await findFileByName(filename, folderId, 'application/json')
+  if (!file || !file.id) return null
+  const data = await readJsonFile<T>(file.id)
+  return { data, fileId: file.id }
+}
+
+/**
+ * Saves JSON file to a folder (creates or updates).
+ */
+export async function saveJsonToFolder<T>(
+  data: T,
+  filename: string,
+  folderId: string
+): Promise<string> {
+  const existing = await findFileByName(filename, folderId, 'application/json')
+  const result = await saveJsonFile(data, filename, folderId, existing?.id || undefined)
+  return result.id!
+}
+
+/**
+ * Check if Google Drive is configured.
+ */
+export function isDriveConfigured(): boolean {
+  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
+  const key = process.env.GOOGLE_PRIVATE_KEY
+  const folderId = process.env.GOOGLE_DRIVE_PDCA_FOLDER_ID
+  return !!(email && key && folderId)
+}
+
+/**
+ * Get PDCA root folder ID.
+ */
+export function getPdcaFolderId(): string {
+  const folderId = process.env.GOOGLE_DRIVE_PDCA_FOLDER_ID
+  if (!folderId) {
+    throw new Error('GOOGLE_DRIVE_PDCA_FOLDER_ID is not configured')
+  }
+  return folderId
 }

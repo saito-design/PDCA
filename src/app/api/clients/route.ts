@@ -1,38 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
 import { ApiResponse, Client } from '@/lib/types'
-import * as fs from 'fs'
-import * as path from 'path'
+import {
+  isDriveConfigured,
+  getPdcaFolderId,
+  loadJsonFromFolder,
+  saveJsonToFolder,
+  ensureFolder,
+} from '@/lib/drive'
 
-// ローカル保存用のパス
-const LOCAL_CLIENTS_PATH = path.join(process.cwd(), '.cache', 'clients.json')
+const CLIENTS_FILENAME = 'clients.json'
 
-// ローカルクライアントを読み込む
-function loadLocalClients(): Client[] {
-  try {
-    if (fs.existsSync(LOCAL_CLIENTS_PATH)) {
-      return JSON.parse(fs.readFileSync(LOCAL_CLIENTS_PATH, 'utf-8'))
-    }
-  } catch {
-    console.warn('ローカルクライアント読み込みエラー')
-  }
-  return []
-}
-
-// ローカルクライアントを保存
-function saveLocalClients(clients: Client[]): void {
-  try {
-    const dir = path.dirname(LOCAL_CLIENTS_PATH)
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true })
-    }
-    fs.writeFileSync(LOCAL_CLIENTS_PATH, JSON.stringify(clients, null, 2))
-  } catch (e) {
-    console.error('ローカルクライアント保存エラー:', e)
-  }
-}
-
-// マスター企業データ
+// マスター企業データ（常に表示される）
 const masterClients: Client[] = [
   {
     id: 'junestory',
@@ -48,13 +27,34 @@ const masterClients: Client[] = [
   },
 ]
 
-// 全クライアントを取得（マスター + ローカル追加分）
-function getAllClients(): Client[] {
-  const localClients = loadLocalClients()
+// Google Driveからクライアントを読み込む
+async function loadClients(): Promise<Client[]> {
+  if (!isDriveConfigured()) {
+    return []
+  }
+  try {
+    const pdcaFolderId = getPdcaFolderId()
+    const result = await loadJsonFromFolder<Client[]>(CLIENTS_FILENAME, pdcaFolderId)
+    return result?.data || []
+  } catch (error) {
+    console.warn('クライアント読み込みエラー:', error)
+    return []
+  }
+}
+
+// Google Driveにクライアントを保存
+async function saveClients(clients: Client[]): Promise<void> {
+  const pdcaFolderId = getPdcaFolderId()
+  await saveJsonToFolder(clients, CLIENTS_FILENAME, pdcaFolderId)
+}
+
+// 全クライアントを取得（マスター + Drive追加分）
+async function getAllClients(): Promise<Client[]> {
+  const driveClients = await loadClients()
   const merged = [...masterClients]
-  for (const lc of localClients) {
-    if (!merged.find(c => c.id === lc.id)) {
-      merged.push(lc)
+  for (const dc of driveClients) {
+    if (!merged.find(c => c.id === dc.id)) {
+      merged.push(dc)
     }
   }
   return merged
@@ -64,9 +64,10 @@ export async function GET(): Promise<NextResponse<ApiResponse<Client[]>>> {
   try {
     await requireAuth()
 
+    const clients = await getAllClients()
     return NextResponse.json({
       success: true,
-      data: getAllClients(),
+      data: clients,
     })
   } catch (error) {
     if (error instanceof Error && error.message === 'Unauthorized') {
@@ -84,8 +85,7 @@ export async function GET(): Promise<NextResponse<ApiResponse<Client[]>>> {
 }
 
 // 企業IDを自動生成
-function generateClientId(name: string): string {
-  // 名前からスラッグを生成（シンプルなID）
+function generateClientId(): string {
   const timestamp = Date.now().toString(36)
   const random = Math.random().toString(36).substring(2, 6)
   return `client-${timestamp}-${random}`
@@ -107,17 +107,31 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
       )
     }
 
+    // Google Driveが未設定の場合はエラー
+    if (!isDriveConfigured()) {
+      return NextResponse.json(
+        { success: false, error: 'Google Driveが設定されていません' },
+        { status: 500 }
+      )
+    }
+
+    const clientId = generateClientId()
+
+    // 企業用フォルダを作成
+    const pdcaFolderId = getPdcaFolderId()
+    const clientFolderId = await ensureFolder(clientId, pdcaFolderId)
+
     const newClient: Client = {
-      id: generateClientId(name),
+      id: clientId,
       name: name.trim(),
-      drive_folder_id: null,
+      drive_folder_id: clientFolderId,
       created_at: new Date().toISOString(),
     }
 
-    // ローカル保存
-    const localClients = loadLocalClients()
-    localClients.push(newClient)
-    saveLocalClients(localClients)
+    // Drive保存
+    const clients = await loadClients()
+    clients.push(newClient)
+    await saveClients(clients)
 
     return NextResponse.json({
       success: true,

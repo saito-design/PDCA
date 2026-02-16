@@ -2,35 +2,36 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
 import { getStoreList } from '@/lib/excel-reader'
 import { ApiResponse, Entity } from '@/lib/types'
-import * as fs from 'fs'
-import * as path from 'path'
+import {
+  isDriveConfigured,
+  getPdcaFolderId,
+  ensureFolder,
+  loadJsonFromFolder,
+  saveJsonToFolder,
+} from '@/lib/drive'
 
-// ローカル保存用のパス
-const LOCAL_ENTITIES_PATH = path.join(process.cwd(), '.cache', 'entities.json')
+const ENTITIES_FILENAME = 'entities.json'
 
-// ローカルエンティティを読み込む
-function loadLocalEntities(): Record<string, Entity[]> {
+// Google Driveからエンティティを読み込む
+async function loadEntities(clientFolderId: string): Promise<Entity[]> {
   try {
-    if (fs.existsSync(LOCAL_ENTITIES_PATH)) {
-      return JSON.parse(fs.readFileSync(LOCAL_ENTITIES_PATH, 'utf-8'))
-    }
-  } catch {
-    console.warn('ローカルエンティティ読み込みエラー')
+    const result = await loadJsonFromFolder<Entity[]>(ENTITIES_FILENAME, clientFolderId)
+    return result?.data || []
+  } catch (error) {
+    console.warn('エンティティ読み込みエラー:', error)
+    return []
   }
-  return {}
 }
 
-// ローカルエンティティを保存
-function saveLocalEntities(entities: Record<string, Entity[]>): void {
-  try {
-    const dir = path.dirname(LOCAL_ENTITIES_PATH)
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true })
-    }
-    fs.writeFileSync(LOCAL_ENTITIES_PATH, JSON.stringify(entities, null, 2))
-  } catch (e) {
-    console.error('ローカルエンティティ保存エラー:', e)
-  }
+// Google Driveにエンティティを保存
+async function saveEntities(entities: Entity[], clientFolderId: string): Promise<void> {
+  await saveJsonToFolder(entities, ENTITIES_FILENAME, clientFolderId)
+}
+
+// 企業フォルダを取得または作成
+async function getClientFolder(clientId: string): Promise<string> {
+  const pdcaFolderId = getPdcaFolderId()
+  return await ensureFolder(clientId, pdcaFolderId)
 }
 
 // ジュネストリーの店舗一覧をエクセルから取得
@@ -83,24 +84,39 @@ export async function GET(
       )
     }
 
-    // ジュネストリーの場合はエクセルから店舗一覧を取得
-    if (clientId === 'junestory') {
-      const junestoryEntities = getJunestoryEntities()
-      const localEntities = loadLocalEntities()
-      const localForClient = localEntities[clientId] || []
+    // Google Driveが未設定の場合
+    if (!isDriveConfigured()) {
+      // ジュネストリーの場合はエクセルから取得
+      if (clientId === 'junestory') {
+        return NextResponse.json({
+          success: true,
+          data: getJunestoryEntities(),
+        })
+      }
       return NextResponse.json({
         success: true,
-        data: [...junestoryEntities, ...localForClient],
+        data: [],
       })
     }
 
-    // その他のクライアントはローカルデータのみ
-    const localEntities = loadLocalEntities()
-    const localForClient = localEntities[clientId] || []
+    // 企業フォルダを取得
+    const clientFolderId = await getClientFolder(clientId)
 
+    // ジュネストリーの場合はエクセルから店舗一覧を取得 + Drive保存分
+    if (clientId === 'junestory') {
+      const junestoryEntities = getJunestoryEntities()
+      const driveEntities = await loadEntities(clientFolderId)
+      return NextResponse.json({
+        success: true,
+        data: [...junestoryEntities, ...driveEntities],
+      })
+    }
+
+    // その他のクライアントはDriveデータのみ
+    const entities = await loadEntities(clientFolderId)
     return NextResponse.json({
       success: true,
-      data: localForClient,
+      data: entities,
     })
   } catch (error) {
     if (error instanceof Error && error.message === 'Unauthorized') {
@@ -136,6 +152,17 @@ export async function POST(
       )
     }
 
+    // Google Driveが未設定の場合はエラー
+    if (!isDriveConfigured()) {
+      return NextResponse.json(
+        { success: false, error: 'Google Driveが設定されていません' },
+        { status: 500 }
+      )
+    }
+
+    // 企業フォルダを取得または作成
+    const clientFolderId = await getClientFolder(clientId)
+
     // 新しいエンティティを作成
     const newEntity: Entity = {
       id: `${clientId}-${Date.now()}`,
@@ -145,13 +172,10 @@ export async function POST(
       created_at: new Date().toISOString(),
     }
 
-    // ローカル保存
-    const localEntities = loadLocalEntities()
-    if (!localEntities[clientId]) {
-      localEntities[clientId] = []
-    }
-    localEntities[clientId].push(newEntity)
-    saveLocalEntities(localEntities)
+    // 既存エンティティを読み込んで追加
+    const entities = await loadEntities(clientFolderId)
+    entities.push(newEntity)
+    await saveEntities(entities, clientFolderId)
 
     return NextResponse.json({
       success: true,
@@ -165,8 +189,9 @@ export async function POST(
       )
     }
     console.error('Add entity error:', error)
+    const errorMessage = error instanceof Error ? error.message : '不明なエラー'
     return NextResponse.json(
-      { success: false, error: '部署/店舗の追加に失敗しました' },
+      { success: false, error: `部署/店舗の追加に失敗しました: ${errorMessage}` },
       { status: 500 }
     )
   }
