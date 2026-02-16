@@ -145,8 +145,14 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
       )
     }
     console.error('Add client error:', error)
+    // デバッグ: 環境変数の状態
+    const hasEmail = !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
+    const hasKey = !!process.env.GOOGLE_PRIVATE_KEY
+    const hasBase64 = !!process.env.GOOGLE_PRIVATE_KEY_BASE64
+    const folderId = process.env.GOOGLE_DRIVE_PDCA_FOLDER_ID
+    const errorMsg = error instanceof Error ? error.message : String(error)
     return NextResponse.json(
-      { success: false, error: '企業の追加に失敗しました' },
+      { success: false, error: `企業の追加に失敗: ${errorMsg} [Email:${hasEmail}, Key:${hasKey}, Base64:${hasBase64}, Folder:${folderId?.substring(0,8)}...]` },
       { status: 500 }
     )
   }
