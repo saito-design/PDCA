@@ -28,7 +28,6 @@ export default function ClientsPage() {
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [showAddModal, setShowAddModal] = useState(false)
   const [newClientName, setNewClientName] = useState('')
-  const [newClientId, setNewClientId] = useState('')
   const [adding, setAdding] = useState(false)
 
   useEffect(() => {
@@ -126,8 +125,8 @@ export default function ClientsPage() {
   }
 
   const handleAddClient = async () => {
-    if (!newClientName.trim() || !newClientId.trim()) {
-      alert('企業名とIDを入力してください')
+    if (!newClientName.trim()) {
+      alert('企業名を入力してください')
       return
     }
     setAdding(true)
@@ -135,13 +134,12 @@ export default function ClientsPage() {
       const res = await fetch('/api/clients', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: newClientId, name: newClientName }),
+        body: JSON.stringify({ name: newClientName }),
       })
       const data = await res.json()
       if (data.success) {
         setShowAddModal(false)
         setNewClientName('')
-        setNewClientId('')
         fetchData()
       } else {
         alert(data.error || '追加に失敗しました')
@@ -304,31 +302,18 @@ export default function ClientsPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-md mx-4">
             <h3 className="text-lg font-semibold mb-4">企業を追加</h3>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  企業ID（英数字）
-                </label>
-                <input
-                  type="text"
-                  value={newClientId}
-                  onChange={(e) => setNewClientId(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                  placeholder="例: company-abc"
-                  className="w-full border rounded-lg px-3 py-2"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  企業名
-                </label>
-                <input
-                  type="text"
-                  value={newClientName}
-                  onChange={(e) => setNewClientName(e.target.value)}
-                  placeholder="例: 株式会社ABC"
-                  className="w-full border rounded-lg px-3 py-2"
-                />
-              </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                企業名
+              </label>
+              <input
+                type="text"
+                value={newClientName}
+                onChange={(e) => setNewClientName(e.target.value)}
+                placeholder="例: 株式会社ABC"
+                className="w-full border rounded-lg px-3 py-2"
+              />
+              <p className="text-xs text-gray-500 mt-1">IDは自動で付与されます</p>
             </div>
             <div className="flex justify-end gap-2 mt-6">
               <button

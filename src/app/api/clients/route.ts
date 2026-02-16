@@ -97,40 +97,35 @@ export async function GET(): Promise<NextResponse<ApiResponse<Client[]>>> {
   }
 }
 
+// 企業IDを自動生成
+function generateClientId(): string {
+  const timestamp = Date.now().toString(36)
+  const random = Math.random().toString(36).substring(2, 6)
+  return `client-${timestamp}-${random}`
+}
+
 // 企業追加
 export async function POST(request: NextRequest): Promise<NextResponse<ApiResponse<Client>>> {
   try {
     await requireAuth()
 
     const body = await request.json()
-    const { id, name } = body
+    const { name } = body
 
     // バリデーション
-    if (!id || typeof id !== 'string' || !/^[a-z0-9-]+$/.test(id)) {
+    if (!name || typeof name !== 'string' || name.trim().length === 0 || name.length > 100) {
       return NextResponse.json(
-        { success: false, error: 'IDは英小文字・数字・ハイフンのみ使用できます' },
-        { status: 400 }
-      )
-    }
-    if (!name || typeof name !== 'string' || name.length > 100) {
-      return NextResponse.json(
-        { success: false, error: '企業名が無効です' },
+        { success: false, error: '企業名を入力してください（100文字以内）' },
         { status: 400 }
       )
     }
 
-    // 重複チェック
-    const existing = getDemoClients()
-    if (existing.find(c => c.id === id)) {
-      return NextResponse.json(
-        { success: false, error: 'このIDは既に使用されています' },
-        { status: 400 }
-      )
-    }
+    // IDを自動生成
+    const id = generateClientId()
 
     const newClient: Client = {
       id,
-      name,
+      name: name.trim(),
       drive_folder_id: null,
       created_at: new Date().toISOString(),
     }
