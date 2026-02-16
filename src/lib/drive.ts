@@ -200,19 +200,23 @@ export async function ensureFolder(
     return existing.id!
   }
 
-  console.log('ensureFolder: creating new folder', folderName)
+  console.log('ensureFolder: creating new folder', folderName, 'in parent', parentId)
   const drive = getDrive()
+
   try {
-    const res = await drive.files.create({
+    const createParams = {
       requestBody: {
         name: folderName,
         mimeType: 'application/vnd.google-apps.folder',
         parents: [parentId],
       },
-      fields: 'id',
+      fields: 'id, name, parents',
       supportsAllDrives: true,
-    })
-    console.log('ensureFolder: created folder', res.data.id)
+    }
+    console.log('ensureFolder: create params', JSON.stringify(createParams))
+
+    const res = await drive.files.create(createParams)
+    console.log('ensureFolder: created folder', res.data.id, 'name:', res.data.name, 'parents:', res.data.parents)
     return res.data.id!
   } catch (error: unknown) {
     console.error('ensureFolder: create failed', error)

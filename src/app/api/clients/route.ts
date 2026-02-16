@@ -88,10 +88,14 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
     }
 
     const clientId = generateClientId()
+    console.log('POST /api/clients: creating client', clientId)
 
     // 企業用フォルダを作成
     const pdcaFolderId = getPdcaFolderId()
+    console.log('POST /api/clients: pdcaFolderId =', pdcaFolderId)
+
     const clientFolderId = await ensureFolder(clientId, pdcaFolderId)
+    console.log('POST /api/clients: clientFolderId =', clientFolderId)
 
     const newClient: Client = {
       id: clientId,
@@ -99,9 +103,11 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
       drive_folder_id: clientFolderId,
       created_at: new Date().toISOString(),
     }
+    console.log('POST /api/clients: newClient =', JSON.stringify(newClient))
 
     // Drive保存
     const clients = await loadClients()
+    console.log('POST /api/clients: existing clients count =', clients.length)
     clients.push(newClient)
     await saveClients(clients)
 
