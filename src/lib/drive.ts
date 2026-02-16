@@ -81,6 +81,17 @@ export async function findFileByName(
 }
 
 /**
+ * Get shared drive ID from folder ID (if it's a shared drive).
+ */
+function getSharedDriveId(): string | undefined {
+  const folderId = process.env.GOOGLE_DRIVE_PDCA_FOLDER_ID
+  if (folderId && folderId.startsWith('0A')) {
+    return folderId
+  }
+  return undefined
+}
+
+/**
  * Uploads (creates or updates) a file.
  */
 export async function saveFile(
@@ -91,6 +102,7 @@ export async function saveFile(
   existingFileId?: string
 ) {
   const drive = getDrive()
+  const sharedDriveId = getSharedDriveId()
   const media = {
     mimeType,
     body: typeof content === 'string' ? Readable.from([content]) : Readable.from(content),
@@ -111,6 +123,7 @@ export async function saveFile(
         name: filename,
         parents: [folderId],
         mimeType,
+        ...(sharedDriveId && { driveId: sharedDriveId }),
       },
       media,
       fields: 'id, name, webViewLink',
@@ -149,6 +162,7 @@ export async function ensureFolder(
   if (existing) return existing.id!
 
   const drive = getDrive()
+  const sharedDriveId = getSharedDriveId()
   const res = await drive.files.create({
     requestBody: {
       name: folderName,
