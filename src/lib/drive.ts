@@ -214,8 +214,13 @@ export async function ensureFolder(
     })
     console.log('ensureFolder: created folder', res.data.id)
     return res.data.id!
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('ensureFolder: create failed', error)
+    // Google APIエラーの詳細を出力
+    if (error && typeof error === 'object' && 'response' in error) {
+      const gError = error as { response?: { data?: unknown } }
+      console.error('ensureFolder: API error details', JSON.stringify(gError.response?.data))
+    }
     throw error
   }
 }
