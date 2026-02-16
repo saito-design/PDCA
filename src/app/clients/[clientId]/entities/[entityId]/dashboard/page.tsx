@@ -489,7 +489,10 @@ export default function DashboardPage({ params }: PageProps) {
           {/* Right: PDCA Editor + History */}
           <div className="col-span-7 space-y-4">
             {/* ミーティングメモ（SAT形式） */}
-            <PdcaEditor onSave={handleSavePdca} />
+            <PdcaEditor
+              onSave={handleSavePdca}
+              storageKey={`pdca-draft-${clientId}-${entityId}`}
+            />
 
             {/* 過去のミーティング履歴 */}
             <MeetingHistory

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Save, Sparkles, ChevronDown, ChevronUp, CheckSquare, Square } from 'lucide-react'
 
 interface PdcaData {
@@ -14,6 +14,7 @@ interface PdcaEditorProps {
   issueTitle?: string
   initialData?: PdcaData
   onSave?: (data: PdcaData) => void
+  storageKey?: string // localStorage用のキー
 }
 
 const FIELDS = [
@@ -34,17 +35,61 @@ function extractTasks(text: string): string[] {
   return tasks
 }
 
-export function PdcaEditor({ issueTitle, initialData, onSave }: PdcaEditorProps) {
-  const [data, setData] = useState<PdcaData>(
-    initialData || {
-      situation: '',
-      issue: '',
-      action: '',
-      target: '',
+export function PdcaEditor({ issueTitle, initialData, onSave, storageKey }: PdcaEditorProps) {
+  const localStorageKey = storageKey || 'pdca-draft'
+
+  // localStorageから下書きを読み込む
+  const loadDraft = useCallback((): PdcaData => {
+    if (typeof window === 'undefined') {
+      return initialData || { situation: '', issue: '', action: '', target: '' }
     }
-  )
+    try {
+      const saved = localStorage.getItem(localStorageKey)
+      if (saved) {
+        const parsed = JSON.parse(saved)
+        // 保存から24時間以内の下書きのみ復元
+        if (parsed.savedAt && Date.now() - parsed.savedAt < 24 * 60 * 60 * 1000) {
+          return parsed.data
+        }
+      }
+    } catch {
+      // 無視
+    }
+    return initialData || { situation: '', issue: '', action: '', target: '' }
+  }, [initialData, localStorageKey])
+
+  const [data, setData] = useState<PdcaData>(loadDraft)
   const [expanded, setExpanded] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [lastSaved, setLastSaved] = useState<Date | null>(null)
+
+  // 初回マウント時に下書きを読み込む
+  useEffect(() => {
+    const draft = loadDraft()
+    if (draft.situation || draft.issue || draft.action || draft.target) {
+      setData(draft)
+    }
+  }, [loadDraft])
+
+  // 入力変更時に自動で下書き保存（デバウンス）
+  useEffect(() => {
+    const hasContent = data.situation || data.issue || data.action || data.target
+    if (!hasContent) return
+
+    const timer = setTimeout(() => {
+      try {
+        localStorage.setItem(localStorageKey, JSON.stringify({
+          data,
+          savedAt: Date.now(),
+        }))
+        setLastSaved(new Date())
+      } catch {
+        // localStorage容量オーバー等は無視
+      }
+    }, 1000) // 1秒後に保存
+
+    return () => clearTimeout(timer)
+  }, [data, localStorageKey])
 
   // アクション欄からタスクを抽出
   const tasks = useMemo(() => extractTasks(data.action), [data.action])
@@ -53,11 +98,24 @@ export function PdcaEditor({ issueTitle, initialData, onSave }: PdcaEditorProps)
     setData((prev) => ({ ...prev, [key]: value }))
   }
 
+  // 下書きをクリア
+  const clearDraft = useCallback(() => {
+    try {
+      localStorage.removeItem(localStorageKey)
+    } catch {
+      // 無視
+    }
+  }, [localStorageKey])
+
   const handleSave = async () => {
     if (!onSave) return
     setSaving(true)
     try {
       await onSave(data)
+      // 保存成功したら下書きをクリア
+      clearDraft()
+      // フォームをリセット
+      setData({ situation: '', issue: '', action: '', target: '' })
     } finally {
       setSaving(false)
     }
@@ -117,7 +175,7 @@ export function PdcaEditor({ issueTitle, initialData, onSave }: PdcaEditorProps)
           )}
 
           {/* Actions */}
-          <div className="flex gap-2 pt-2">
+          <div className="flex items-center gap-2 pt-2">
             <button
               onClick={handleSave}
               disabled={saving}
@@ -134,6 +192,11 @@ export function PdcaEditor({ issueTitle, initialData, onSave }: PdcaEditorProps)
               <Sparkles size={16} />
               Act生成
             </button>
+            {lastSaved && (
+              <span className="text-xs text-gray-400 ml-2">
+                下書き保存済み ({lastSaved.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })})
+              </span>
+            )}
           </div>
         </div>
       )}

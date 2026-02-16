@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { getStoreList } from '@/lib/excel-reader'
 import { ApiResponse, Entity } from '@/lib/types'
 import {
   isDriveConfigured,
@@ -34,36 +33,6 @@ async function getClientFolder(clientId: string): Promise<string> {
   return await ensureFolder(clientId, pdcaFolderId)
 }
 
-// ジュネストリーの店舗一覧をエクセルから取得
-function getJunestoryEntities(): Entity[] {
-  const entities: Entity[] = [
-    {
-      id: 'junestory-all',
-      client_id: 'junestory',
-      name: '全店',
-      sort_order: 0,
-      created_at: new Date().toISOString(),
-    },
-  ]
-
-  try {
-    const stores = getStoreList('junestory')
-    stores.forEach((storeName, index) => {
-      entities.push({
-        id: `junestory-${index + 1}`,
-        client_id: 'junestory',
-        name: storeName,
-        sort_order: (index + 1) * 10,
-        created_at: new Date().toISOString(),
-      })
-    })
-  } catch (error) {
-    console.warn('店舗一覧取得エラー:', error)
-  }
-
-  return entities
-}
-
 type RouteParams = {
   params: Promise<{ clientId: string }>
 }
@@ -86,13 +55,6 @@ export async function GET(
 
     // Google Driveが未設定の場合
     if (!isDriveConfigured()) {
-      // ジュネストリーの場合はエクセルから取得
-      if (clientId === 'junestory') {
-        return NextResponse.json({
-          success: true,
-          data: getJunestoryEntities(),
-        })
-      }
       return NextResponse.json({
         success: true,
         data: [],
@@ -102,17 +64,7 @@ export async function GET(
     // 企業フォルダを取得
     const clientFolderId = await getClientFolder(clientId)
 
-    // ジュネストリーの場合はエクセルから店舗一覧を取得 + Drive保存分
-    if (clientId === 'junestory') {
-      const junestoryEntities = getJunestoryEntities()
-      const driveEntities = await loadEntities(clientFolderId)
-      return NextResponse.json({
-        success: true,
-        data: [...junestoryEntities, ...driveEntities],
-      })
-    }
-
-    // その他のクライアントはDriveデータのみ
+    // Driveからエンティティを取得
     const entities = await loadEntities(clientFolderId)
     return NextResponse.json({
       success: true,

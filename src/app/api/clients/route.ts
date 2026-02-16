@@ -11,22 +11,6 @@ import {
 
 const CLIENTS_FILENAME = 'clients.json'
 
-// マスター企業データ（常に表示される）
-const masterClients: Client[] = [
-  {
-    id: 'junestory',
-    name: '株式会社ジュネストリー',
-    drive_folder_id: null,
-    created_at: '2024-01-01T00:00:00.000Z',
-  },
-  {
-    id: 'tottori-kyosai',
-    name: '鳥取県市町村職員共済組合',
-    drive_folder_id: null,
-    created_at: '2026-02-16T00:00:00.000Z',
-  },
-]
-
 // Google Driveからクライアントを読み込む
 async function loadClients(): Promise<Client[]> {
   if (!isDriveConfigured()) {
@@ -48,23 +32,11 @@ async function saveClients(clients: Client[]): Promise<void> {
   await saveJsonToFolder(clients, CLIENTS_FILENAME, pdcaFolderId)
 }
 
-// 全クライアントを取得（マスター + Drive追加分）
-async function getAllClients(): Promise<Client[]> {
-  const driveClients = await loadClients()
-  const merged = [...masterClients]
-  for (const dc of driveClients) {
-    if (!merged.find(c => c.id === dc.id)) {
-      merged.push(dc)
-    }
-  }
-  return merged
-}
-
 export async function GET(): Promise<NextResponse<ApiResponse<Client[]>>> {
   try {
     await requireAuth()
 
-    const clients = await getAllClients()
+    const clients = await loadClients()
     return NextResponse.json({
       success: true,
       data: clients,
