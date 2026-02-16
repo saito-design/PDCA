@@ -37,6 +37,11 @@ function getAuth() {
     throw new Error(`Google Drive credentials are not configured. Email: ${!!email}, Key: ${!!key}, Base64: ${hasBase64}, Normal: ${hasNormal}`)
   }
 
+  // デバッグ: キーの検証
+  const keyStart = key.substring(0, 30)
+  const keyEnd = key.substring(key.length - 30)
+  console.log(`Auth: email=${email}, keyStart=${keyStart}, keyEnd=${keyEnd}, keyLen=${key.length}`)
+
   return new JWT({
     email,
     key,
