@@ -32,7 +32,9 @@ function getAuth() {
   const key = getPrivateKey()
 
   if (!email || !key) {
-    throw new Error('Google Drive credentials are not configured')
+    const hasBase64 = !!process.env.GOOGLE_PRIVATE_KEY_BASE64
+    const hasNormal = !!process.env.GOOGLE_PRIVATE_KEY
+    throw new Error(`Google Drive credentials are not configured. Email: ${!!email}, Key: ${!!key}, Base64: ${hasBase64}, Normal: ${hasNormal}`)
   }
 
   return new JWT({
@@ -241,7 +243,7 @@ export async function saveJsonToFolder<T>(
  */
 export function isDriveConfigured(): boolean {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
-  const key = process.env.GOOGLE_PRIVATE_KEY
+  const key = process.env.GOOGLE_PRIVATE_KEY || process.env.GOOGLE_PRIVATE_KEY_BASE64
   const folderId = process.env.GOOGLE_DRIVE_PDCA_FOLDER_ID
   return !!(email && key && folderId)
 }
