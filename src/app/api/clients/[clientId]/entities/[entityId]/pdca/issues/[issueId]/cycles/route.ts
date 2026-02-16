@@ -1,20 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { ApiResponse, PdcaCycle, PdcaStatus } from '@/lib/types'
+import { ApiResponse, PdcaCycle, PdcaStatus, Client } from '@/lib/types'
 import {
   isDriveConfigured,
   getPdcaFolderId,
-  ensureFolder,
   loadJsonFromFolder,
   saveJsonToFolder,
 } from '@/lib/drive'
 
+const CLIENTS_FILENAME = 'clients.json'
 const CYCLES_FILENAME = 'pdca-cycles.json'
 
-// 企業フォルダを取得または作成
-async function getClientFolder(clientId: string): Promise<string> {
-  const pdcaFolderId = getPdcaFolderId()
-  return await ensureFolder(clientId, pdcaFolderId)
+// Google Driveからクライアント一覧を読み込む
+async function loadClients(): Promise<Client[]> {
+  try {
+    const pdcaFolderId = getPdcaFolderId()
+    const result = await loadJsonFromFolder<Client[]>(CLIENTS_FILENAME, pdcaFolderId)
+    return result?.data || []
+  } catch (error) {
+    console.warn('クライアント読み込みエラー:', error)
+    return []
+  }
+}
+
+// 企業のdrive_folder_idを取得
+async function getClientFolderId(clientId: string): Promise<string | null> {
+  const clients = await loadClients()
+  const client = clients.find(c => c.id === clientId)
+  return client?.drive_folder_id || null
 }
 
 // Google Driveからサイクルを読み込む
@@ -61,7 +74,14 @@ export async function GET(
       })
     }
 
-    const clientFolderId = await getClientFolder(clientId)
+    const clientFolderId = await getClientFolderId(clientId)
+    if (!clientFolderId) {
+      return NextResponse.json(
+        { success: false, error: '企業が見つかりません' },
+        { status: 404 }
+      )
+    }
+
     const allCycles = await loadCycles(clientFolderId)
     const filtered = allCycles.filter((c) => c.issue_id === issueId)
 
@@ -143,7 +163,14 @@ export async function POST(
       updated_at: new Date().toISOString(),
     }
 
-    const clientFolderId = await getClientFolder(clientId)
+    const clientFolderId = await getClientFolderId(clientId)
+    if (!clientFolderId) {
+      return NextResponse.json(
+        { success: false, error: '企業が見つかりません' },
+        { status: 404 }
+      )
+    }
+
     const allCycles = await loadCycles(clientFolderId)
     allCycles.push(newCycle)
     await saveCycles(allCycles, clientFolderId)
@@ -201,7 +228,14 @@ export async function PATCH(
       )
     }
 
-    const clientFolderId = await getClientFolder(clientId)
+    const clientFolderId = await getClientFolderId(clientId)
+    if (!clientFolderId) {
+      return NextResponse.json(
+        { success: false, error: '企業が見つかりません' },
+        { status: 404 }
+      )
+    }
+
     const allCycles = await loadCycles(clientFolderId)
     const idx = allCycles.findIndex((c) => c.id === id && c.issue_id === issueId)
 
