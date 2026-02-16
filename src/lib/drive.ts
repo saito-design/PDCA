@@ -64,20 +64,38 @@ export async function listFilesInFolder(
   orderBy: string = 'modifiedTime desc'
 ) {
   const drive = getDrive()
-  const isSharedDrive = folderId.startsWith('0A')
-  const query = `'${folderId}' in parents and trashed = false${q ? ` and ${q}` : ''}`
+  const isSharedDriveRoot = folderId.startsWith('0A')
 
-  const res = await drive.files.list({
-    q: query,
-    fields: 'files(id, name, mimeType, webViewLink, createdTime, modifiedTime)',
-    orderBy,
-    pageSize: 100,
-    includeItemsFromAllDrives: true,
-    supportsAllDrives: true,
-    ...(isSharedDrive ? { driveId: folderId, corpora: 'drive' } : { corpora: 'allDrives' }),
-  })
+  // 共有ドライブのルートの場合は、親フォルダの条件を変える
+  let query: string
+  if (isSharedDriveRoot) {
+    // 共有ドライブのルート直下のファイルを検索
+    // parents条件なしで、driveIdとcorpora: driveで検索
+    const parentCondition = `'${folderId}' in parents or parents = '${folderId}'`
+    query = `(${parentCondition}) and trashed = false${q ? ` and ${q}` : ''}`
+  } else {
+    query = `'${folderId}' in parents and trashed = false${q ? ` and ${q}` : ''}`
+  }
 
-  return res.data.files || []
+  try {
+    const res = await drive.files.list({
+      q: query,
+      fields: 'files(id, name, mimeType, webViewLink, createdTime, modifiedTime)',
+      orderBy,
+      pageSize: 100,
+      includeItemsFromAllDrives: true,
+      supportsAllDrives: true,
+      ...(isSharedDriveRoot ? { driveId: folderId, corpora: 'drive' } : { corpora: 'allDrives' }),
+    })
+    return res.data.files || []
+  } catch (error) {
+    // 共有ドライブルートで404が出た場合は空配列を返す（まだファイルがない）
+    if (error instanceof Error && 'code' in error && (error as { code: number }).code === 404) {
+      console.warn('Folder not found, returning empty list:', folderId)
+      return []
+    }
+    throw error
+  }
 }
 
 /**
