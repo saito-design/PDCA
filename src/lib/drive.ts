@@ -132,6 +132,7 @@ export async function saveFile(
   }
 
   if (existingFileId) {
+    console.log('saveFile: updating existing file', existingFileId)
     const res = await drive.files.update({
       fileId: existingFileId,
       media,
@@ -141,17 +142,24 @@ export async function saveFile(
     return res.data
   } else {
     if (!folderId) throw new Error('Folder ID is required for creating a new file')
-    const res = await drive.files.create({
-      requestBody: {
-        name: filename,
-        parents: [folderId],
-        mimeType,
-      },
-      media,
-      fields: 'id, name, webViewLink',
-      supportsAllDrives: true,
-    })
-    return res.data
+    console.log('saveFile: creating new file', filename, 'in folder', folderId)
+    try {
+      const res = await drive.files.create({
+        requestBody: {
+          name: filename,
+          parents: [folderId],
+          mimeType,
+        },
+        media,
+        fields: 'id, name, webViewLink',
+        supportsAllDrives: true,
+      })
+      console.log('saveFile: created file', res.data.id)
+      return res.data
+    } catch (error) {
+      console.error('saveFile: create failed for folder', folderId, error)
+      throw error
+    }
   }
 }
 
@@ -180,20 +188,31 @@ export async function ensureFolder(
   folderName: string,
   parentId: string
 ): Promise<string> {
+  console.log('ensureFolder: searching for', folderName, 'in', parentId)
   const existing = await findFileByName(folderName, parentId)
-  if (existing) return existing.id!
+  if (existing) {
+    console.log('ensureFolder: found existing folder', existing.id)
+    return existing.id!
+  }
 
+  console.log('ensureFolder: creating new folder', folderName)
   const drive = getDrive()
-  const res = await drive.files.create({
-    requestBody: {
-      name: folderName,
-      mimeType: 'application/vnd.google-apps.folder',
-      parents: [parentId],
-    },
-    fields: 'id',
-    supportsAllDrives: true,
-  })
-  return res.data.id!
+  try {
+    const res = await drive.files.create({
+      requestBody: {
+        name: folderName,
+        mimeType: 'application/vnd.google-apps.folder',
+        parents: [parentId],
+      },
+      fields: 'id',
+      supportsAllDrives: true,
+    })
+    console.log('ensureFolder: created folder', res.data.id)
+    return res.data.id!
+  } catch (error) {
+    console.error('ensureFolder: create failed', error)
+    throw error
+  }
 }
 
 /**
