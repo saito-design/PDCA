@@ -1,7 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { getSupabaseServer } from '@/lib/supabase'
-import { ApiResponse } from '@/lib/types'
+import { ApiResponse, Chart } from '@/lib/types'
+import * as fs from 'fs'
+import * as path from 'path'
+
+// ローカル保存用のパス
+const LOCAL_CHARTS_PATH = path.join(process.cwd(), '.cache', 'charts.json')
+
+// ローカルチャートを読み込む
+function loadLocalCharts(): Record<string, Chart[]> {
+  try {
+    if (fs.existsSync(LOCAL_CHARTS_PATH)) {
+      return JSON.parse(fs.readFileSync(LOCAL_CHARTS_PATH, 'utf-8'))
+    }
+  } catch {
+    console.warn('ローカルチャート読み込みエラー')
+  }
+  return {}
+}
+
+// ローカルチャートを保存
+function saveLocalCharts(charts: Record<string, Chart[]>): void {
+  try {
+    const dir = path.dirname(LOCAL_CHARTS_PATH)
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
+    }
+    fs.writeFileSync(LOCAL_CHARTS_PATH, JSON.stringify(charts, null, 2))
+  } catch (e) {
+    console.error('ローカルチャート保存エラー:', e)
+  }
+}
 
 type RouteParams = {
   params: Promise<{ clientId: string }>
@@ -48,25 +77,22 @@ export async function POST(
       }
     }
 
-    try {
-      const supabase = getSupabaseServer()
+    // ローカルチャートを更新
+    const allCharts = loadLocalCharts()
+    const clientCharts = allCharts[clientId] || []
 
-      // バッチ更新
-      const updates = items.map((item) =>
-        supabase
-          .from('charts')
-          .update({ sort_order: item.sort_order, updated_at: new Date().toISOString() })
-          .eq('id', item.id)
-          .eq('client_id', clientId)
-      )
-
-      await Promise.all(updates)
-
-      return NextResponse.json({ success: true })
-    } catch {
-      // デモモード: 成功扱い
-      return NextResponse.json({ success: true })
+    for (const item of items) {
+      const chart = clientCharts.find(c => c.id === item.id)
+      if (chart) {
+        chart.sort_order = item.sort_order
+        chart.updated_at = new Date().toISOString()
+      }
     }
+
+    allCharts[clientId] = clientCharts
+    saveLocalCharts(allCharts)
+
+    return NextResponse.json({ success: true })
   } catch (error) {
     if (error instanceof Error && error.message === 'Unauthorized') {
       return NextResponse.json(

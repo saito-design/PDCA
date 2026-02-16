@@ -1,13 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { getSupabaseServer } from '@/lib/supabase'
 import { ApiResponse, Chart, ChartType, AggKey } from '@/lib/types'
+import * as fs from 'fs'
+import * as path from 'path'
 
-// デモ用データ（グローバルで共有）
-export const demoCharts: Record<string, Chart[]> = {
-  'junestory': [],
-  'demo-client-1': [],
-  'demo-client-2': [],
+// ローカル保存用のパス
+const LOCAL_CHARTS_PATH = path.join(process.cwd(), '.cache', 'charts.json')
+
+// ローカルチャートを読み込む
+function loadLocalCharts(): Record<string, Chart[]> {
+  try {
+    if (fs.existsSync(LOCAL_CHARTS_PATH)) {
+      return JSON.parse(fs.readFileSync(LOCAL_CHARTS_PATH, 'utf-8'))
+    }
+  } catch {
+    console.warn('ローカルチャート読み込みエラー')
+  }
+  return {}
+}
+
+// ローカルチャートを保存
+function saveLocalCharts(charts: Record<string, Chart[]>): void {
+  try {
+    const dir = path.dirname(LOCAL_CHARTS_PATH)
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
+    }
+    fs.writeFileSync(LOCAL_CHARTS_PATH, JSON.stringify(charts, null, 2))
+  } catch (e) {
+    console.error('ローカルチャート保存エラー:', e)
+  }
 }
 
 type RouteParams = {
@@ -30,27 +52,16 @@ export async function GET(
       )
     }
 
-    try {
-      const supabase = getSupabaseServer()
-      const { data, error } = await supabase
-        .from('charts')
-        .select('*')
-        .eq('client_id', clientId)
-        .order('sort_order')
+    const allCharts = loadLocalCharts()
+    const clientCharts = allCharts[clientId] || []
 
-      if (error) throw error
+    // sort_orderでソート
+    clientCharts.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0))
 
-      return NextResponse.json({
-        success: true,
-        data: data as Chart[],
-      })
-    } catch {
-      console.warn('Supabase接続エラー: デモデータを使用')
-      return NextResponse.json({
-        success: true,
-        data: demoCharts[clientId] || [],
-      })
-    }
+    return NextResponse.json({
+      success: true,
+      data: clientCharts,
+    })
   } catch (error) {
     if (error instanceof Error && error.message === 'Unauthorized') {
       return NextResponse.json(
@@ -114,61 +125,35 @@ export async function POST(
       )
     }
 
-    try {
-      const supabase = getSupabaseServer()
-      const { data, error } = await supabase
-        .from('charts')
-        .insert({
-          client_id: clientId,
-          title,
-          type: type as ChartType,
-          x_key: x_key || 'yearMonth',
-          series_keys,
-          series_config: series_config || null,
-          agg_key: agg_key as AggKey,
-          store_override: store_override || null,
-          filters: filters || {},
-          show_on_dashboard: show_on_dashboard || false,
-          sort_order: sort_order || 10,
-        })
-        .select()
-        .single()
-
-      if (error) throw error
-
-      return NextResponse.json({
-        success: true,
-        data: data as Chart,
-      })
-    } catch {
-      // デモモード: メモリ上で処理
-      const newChart: Chart = {
-        id: `demo-chart-${Date.now()}`,
-        client_id: clientId,
-        title,
-        type: type as ChartType,
-        x_key: x_key || 'yearMonth',
-        series_keys,
-        series_config: series_config || undefined,
-        agg_key: agg_key as AggKey,
-        store_override: store_override || null,
-        filters: filters || {},
-        show_on_dashboard: show_on_dashboard || false,
-        sort_order: sort_order || 10,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }
-
-      if (!demoCharts[clientId]) {
-        demoCharts[clientId] = []
-      }
-      demoCharts[clientId].push(newChart)
-
-      return NextResponse.json({
-        success: true,
-        data: newChart,
-      })
+    const newChart: Chart = {
+      id: `chart-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      client_id: clientId,
+      title,
+      type: type as ChartType,
+      x_key: x_key || 'yearMonth',
+      series_keys,
+      series_config: series_config || undefined,
+      agg_key: agg_key as AggKey,
+      store_override: store_override || null,
+      filters: filters || {},
+      show_on_dashboard: show_on_dashboard || false,
+      sort_order: sort_order || 10,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     }
+
+    // ローカル保存
+    const allCharts = loadLocalCharts()
+    if (!allCharts[clientId]) {
+      allCharts[clientId] = []
+    }
+    allCharts[clientId].push(newChart)
+    saveLocalCharts(allCharts)
+
+    return NextResponse.json({
+      success: true,
+      data: newChart,
+    })
   } catch (error) {
     if (error instanceof Error && error.message === 'Unauthorized') {
       return NextResponse.json(

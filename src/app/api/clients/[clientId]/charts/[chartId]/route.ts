@@ -1,7 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { getSupabaseServer } from '@/lib/supabase'
 import { ApiResponse, Chart } from '@/lib/types'
+import * as fs from 'fs'
+import * as path from 'path'
+
+// ローカル保存用のパス
+const LOCAL_CHARTS_PATH = path.join(process.cwd(), '.cache', 'charts.json')
+
+// ローカルチャートを読み込む
+function loadLocalCharts(): Record<string, Chart[]> {
+  try {
+    if (fs.existsSync(LOCAL_CHARTS_PATH)) {
+      return JSON.parse(fs.readFileSync(LOCAL_CHARTS_PATH, 'utf-8'))
+    }
+  } catch {
+    console.warn('ローカルチャート読み込みエラー')
+  }
+  return {}
+}
+
+// ローカルチャートを保存
+function saveLocalCharts(charts: Record<string, Chart[]>): void {
+  try {
+    const dir = path.dirname(LOCAL_CHARTS_PATH)
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
+    }
+    fs.writeFileSync(LOCAL_CHARTS_PATH, JSON.stringify(charts, null, 2))
+  } catch (e) {
+    console.error('ローカルチャート保存エラー:', e)
+  }
+}
 
 type RouteParams = {
   params: Promise<{ clientId: string; chartId: string }>
@@ -68,29 +97,27 @@ export async function PATCH(
 
     updates.updated_at = new Date().toISOString()
 
-    try {
-      const supabase = getSupabaseServer()
-      const { data, error } = await supabase
-        .from('charts')
-        .update(updates)
-        .eq('id', chartId)
-        .eq('client_id', clientId)
-        .select()
-        .single()
+    // ローカルチャートを更新
+    const allCharts = loadLocalCharts()
+    const clientCharts = allCharts[clientId] || []
+    const chartIndex = clientCharts.findIndex(c => c.id === chartId)
 
-      if (error) throw error
-
-      return NextResponse.json({
-        success: true,
-        data: data as Chart,
-      })
-    } catch {
-      // デモモード: 成功扱い
-      return NextResponse.json({
-        success: true,
-        data: { id: chartId, ...updates } as unknown as Chart,
-      })
+    if (chartIndex === -1) {
+      return NextResponse.json(
+        { success: false, error: 'グラフが見つかりません' },
+        { status: 404 }
+      )
     }
+
+    const updatedChart = { ...clientCharts[chartIndex], ...updates } as Chart
+    clientCharts[chartIndex] = updatedChart
+    allCharts[clientId] = clientCharts
+    saveLocalCharts(allCharts)
+
+    return NextResponse.json({
+      success: true,
+      data: updatedChart,
+    })
   } catch (error) {
     if (error instanceof Error && error.message === 'Unauthorized') {
       return NextResponse.json(
@@ -122,21 +149,14 @@ export async function DELETE(
       )
     }
 
-    try {
-      const supabase = getSupabaseServer()
-      const { error } = await supabase
-        .from('charts')
-        .delete()
-        .eq('id', chartId)
-        .eq('client_id', clientId)
+    // ローカルチャートから削除
+    const allCharts = loadLocalCharts()
+    const clientCharts = allCharts[clientId] || []
+    const filteredCharts = clientCharts.filter(c => c.id !== chartId)
+    allCharts[clientId] = filteredCharts
+    saveLocalCharts(allCharts)
 
-      if (error) throw error
-
-      return NextResponse.json({ success: true })
-    } catch {
-      // デモモード: 成功扱い
-      return NextResponse.json({ success: true })
-    }
+    return NextResponse.json({ success: true })
   } catch (error) {
     if (error instanceof Error && error.message === 'Unauthorized') {
       return NextResponse.json(

@@ -2,7 +2,6 @@ import { SessionOptions, getIronSession } from 'iron-session'
 import { cookies } from 'next/headers'
 import crypto from 'crypto'
 import { SessionData, User } from './types'
-import { getSupabaseServer } from './supabase'
 
 export const sessionOptions: SessionOptions = {
   password: process.env.SESSION_PASSWORD as string,
@@ -23,21 +22,21 @@ export function hashPassword(password: string): string {
   return crypto.createHash('sha256').update(password).digest('hex')
 }
 
-// 開発用アカウント
-const devAccounts: Record<string, { name: string; role: 'admin' | 'user' }> = {
-  'owner': { name: 'オーナー（開発用）', role: 'admin' },
+// アカウント（マスター管理）
+const accounts: Record<string, { name: string; role: 'admin' | 'user' }> = {
+  'owner': { name: 'オーナー', role: 'admin' },
 }
 
 export async function verifyCredentials(
   email: string,
   passwordPlain: string
 ): Promise<User | null> {
-  // 開発用アカウント（email と password が同じ場合）
-  if (email in devAccounts && passwordPlain === email) {
-    const account = devAccounts[email]
+  // アカウント認証（email と password が同じ場合）
+  if (email in accounts && passwordPlain === email) {
+    const account = accounts[email]
     return {
-      id: `dev-${email}`,
-      client_id: '', // 開発用は全企業アクセス可
+      id: `user-${email}`,
+      client_id: '',
       email: email,
       password_hash: hashPassword(email),
       name: account.name,
@@ -46,30 +45,7 @@ export async function verifyCredentials(
     }
   }
 
-  // Supabaseからユーザー検証
-  try {
-    const supabase = getSupabaseServer()
-    const { data: user, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', email)
-      .single()
-
-    if (error || !user) {
-      return null
-    }
-
-    const inputHash = hashPassword(passwordPlain)
-    if (user.password_hash === inputHash) {
-      return user as User
-    }
-
-    return null
-  } catch {
-    // Supabase未設定時は開発用アカウントのみ
-    console.warn('Supabase接続エラー: 開発用アカウントのみ利用可能')
-    return null
-  }
+  return null
 }
 
 // 認証チェック用ヘルパー

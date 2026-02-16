@@ -1,8 +1,67 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { getSupabaseServer } from '@/lib/supabase'
 import { saveFile, ensureFolder } from '@/lib/drive'
 import { ApiResponse, PdcaIssue, PdcaCycle, Entity, Client } from '@/lib/types'
+import * as fs from 'fs'
+import * as path from 'path'
+
+// ローカル保存用のパス
+const LOCAL_CLIENTS_PATH = path.join(process.cwd(), '.cache', 'clients.json')
+const LOCAL_ENTITIES_PATH = path.join(process.cwd(), '.cache', 'entities.json')
+const LOCAL_ISSUES_PATH = path.join(process.cwd(), '.cache', 'pdca-issues.json')
+const LOCAL_CYCLES_PATH = path.join(process.cwd(), '.cache', 'pdca-cycles.json')
+
+// マスター企業データ
+const masterClients: Client[] = [
+  {
+    id: 'junestory',
+    name: '株式会社ジュネストリー',
+    drive_folder_id: null,
+    created_at: '2024-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'tottori-kyosai',
+    name: '鳥取県市町村職員共済組合',
+    drive_folder_id: null,
+    created_at: '2026-02-16T00:00:00.000Z',
+  },
+]
+
+function loadLocalClients(): Client[] {
+  try {
+    if (fs.existsSync(LOCAL_CLIENTS_PATH)) {
+      return JSON.parse(fs.readFileSync(LOCAL_CLIENTS_PATH, 'utf-8'))
+    }
+  } catch { /* ignore */ }
+  return []
+}
+
+function loadLocalEntities(): Record<string, Entity[]> {
+  try {
+    if (fs.existsSync(LOCAL_ENTITIES_PATH)) {
+      return JSON.parse(fs.readFileSync(LOCAL_ENTITIES_PATH, 'utf-8'))
+    }
+  } catch { /* ignore */ }
+  return {}
+}
+
+function loadLocalIssues(): PdcaIssue[] {
+  try {
+    if (fs.existsSync(LOCAL_ISSUES_PATH)) {
+      return JSON.parse(fs.readFileSync(LOCAL_ISSUES_PATH, 'utf-8'))
+    }
+  } catch { /* ignore */ }
+  return []
+}
+
+function loadLocalCycles(): PdcaCycle[] {
+  try {
+    if (fs.existsSync(LOCAL_CYCLES_PATH)) {
+      return JSON.parse(fs.readFileSync(LOCAL_CYCLES_PATH, 'utf-8'))
+    }
+  } catch { /* ignore */ }
+  return []
+}
 
 type RouteParams = {
   params: Promise<{ clientId: string; entityId: string }>
@@ -95,80 +154,13 @@ export async function POST(
       )
     }
 
-    // データ取得
-    let client: Client | null = null
-    let entity: Entity | null = null
-    let issues: (PdcaIssue & { cycles: PdcaCycle[] })[] = []
+    // ローカルデータから取得
+    const allClients = [...masterClients, ...loadLocalClients()]
+    const client = allClients.find(c => c.id === clientId)
 
-    try {
-      const supabase = getSupabaseServer()
-
-      // クライアント情報
-      const { data: clientData } = await supabase
-        .from('clients')
-        .select('*')
-        .eq('id', clientId)
-        .single()
-      client = clientData as Client
-
-      // エンティティ情報
-      const { data: entityData } = await supabase
-        .from('entities')
-        .select('*')
-        .eq('id', entityId)
-        .single()
-      entity = entityData as Entity
-
-      // イシュー一覧
-      const { data: issuesData } = await supabase
-        .from('pdca_issues')
-        .select('*')
-        .eq('client_id', clientId)
-        .eq('entity_id', entityId)
-        .order('created_at', { ascending: false })
-
-      // 各イシューのサイクル取得
-      for (const issue of (issuesData || []) as PdcaIssue[]) {
-        const { data: cyclesData } = await supabase
-          .from('pdca_cycles')
-          .select('*')
-          .eq('issue_id', issue.id)
-          .order('cycle_date', { ascending: false })
-
-        issues.push({
-          ...issue,
-          cycles: (cyclesData || []) as PdcaCycle[],
-        })
-      }
-    } catch {
-      // デモモード
-      client = { id: clientId, name: 'デモ企業', drive_folder_id: null, created_at: new Date().toISOString() }
-      entity = { id: entityId, client_id: clientId, name: 'デモ店舗', sort_order: 10, created_at: new Date().toISOString() }
-      issues = [
-        {
-          id: 'demo-issue-1',
-          client_id: clientId,
-          entity_id: entityId,
-          title: 'サンプルイシュー',
-          created_at: new Date().toISOString(),
-          cycles: [
-            {
-              id: 'demo-cycle-1',
-              client_id: clientId,
-              issue_id: 'demo-issue-1',
-              cycle_date: new Date().toISOString().split('T')[0],
-              situation: 'サンプル現状',
-              issue: 'サンプル課題',
-              action: 'サンプルアクション',
-              target: 'サンプル目標',
-              status: 'doing',
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            },
-          ],
-        },
-      ]
-    }
+    const allEntities = loadLocalEntities()
+    const entityList = allEntities[clientId] || []
+    const entity = entityList.find(e => e.id === entityId)
 
     if (!client || !entity) {
       return NextResponse.json(
@@ -177,11 +169,26 @@ export async function POST(
       )
     }
 
+    // イシューとサイクルを取得
+    const allIssues = loadLocalIssues()
+    const allCycles = loadLocalCycles()
+
+    const filteredIssues = allIssues.filter(
+      i => i.client_id === clientId && i.entity_id === entityId
+    )
+
+    const issuesWithCycles = filteredIssues.map(issue => ({
+      ...issue,
+      cycles: allCycles.filter(c => c.issue_id === issue.id).sort(
+        (a, b) => new Date(b.cycle_date).getTime() - new Date(a.cycle_date).getTime()
+      ),
+    }))
+
     // レポート生成
     const reportData: ReportData = {
       client,
       entity,
-      issues,
+      issues: issuesWithCycles,
       generatedAt: new Date().toISOString(),
     }
 

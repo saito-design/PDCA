@@ -1,14 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { getSupabaseServer } from '@/lib/supabase'
 import { ApiResponse, PdcaIssue } from '@/lib/types'
+import * as fs from 'fs'
+import * as path from 'path'
 
-// デモ用データ
-const demoIssues: PdcaIssue[] = [
-  { id: 'issue-1', client_id: 'demo-client-1', entity_id: 'demo-entity-1', title: '朝食単価アップ施策', created_at: '2025-01-15T00:00:00Z' },
-  { id: 'issue-2', client_id: 'demo-client-1', entity_id: 'demo-entity-1', title: '客室稼働率改善', created_at: '2025-01-20T00:00:00Z' },
-  { id: 'issue-3', client_id: 'demo-client-1', entity_id: 'demo-entity-2', title: 'スタッフ教育プログラム', created_at: '2025-02-01T00:00:00Z' },
-]
+// ローカル保存用のパス
+const LOCAL_ISSUES_PATH = path.join(process.cwd(), '.cache', 'pdca-issues.json')
+
+// ローカルイシューを読み込む
+function loadLocalIssues(): PdcaIssue[] {
+  try {
+    if (fs.existsSync(LOCAL_ISSUES_PATH)) {
+      return JSON.parse(fs.readFileSync(LOCAL_ISSUES_PATH, 'utf-8'))
+    }
+  } catch {
+    console.warn('ローカルイシュー読み込みエラー')
+  }
+  return []
+}
+
+// ローカルイシューを保存
+function saveLocalIssues(issues: PdcaIssue[]): void {
+  try {
+    const dir = path.dirname(LOCAL_ISSUES_PATH)
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
+    }
+    fs.writeFileSync(LOCAL_ISSUES_PATH, JSON.stringify(issues, null, 2))
+  } catch (e) {
+    console.error('ローカルイシュー保存エラー:', e)
+  }
+}
 
 type RouteParams = {
   params: Promise<{ clientId: string; entityId: string }>
@@ -30,38 +52,18 @@ export async function GET(
       )
     }
 
-    try {
-      const supabase = getSupabaseServer()
-      const { data, error } = await supabase
-        .from('pdca_issues')
-        .select('*')
-        .eq('client_id', clientId)
-        .eq('entity_id', entityId)
-        .order('created_at', { ascending: false })
+    const allIssues = loadLocalIssues()
+    const filtered = allIssues.filter(
+      (i) => i.client_id === clientId && i.entity_id === entityId
+    )
 
-      if (error) throw error
+    // 作成日時の降順でソート
+    filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
-      return NextResponse.json({
-        success: true,
-        data: data as PdcaIssue[],
-      })
-    } catch {
-      // デモモード
-      const filtered = demoIssues.filter(
-        (i) => i.client_id === clientId && i.entity_id === entityId
-      )
-      // デモ用：entityIdがdemo-で始まる場合は全てのデモイシューを返す
-      if (entityId.startsWith('demo-')) {
-        return NextResponse.json({
-          success: true,
-          data: demoIssues.filter((i) => i.entity_id === entityId),
-        })
-      }
-      return NextResponse.json({
-        success: true,
-        data: filtered,
-      })
-    }
+    return NextResponse.json({
+      success: true,
+      data: filtered,
+    })
   } catch (error) {
     if (error instanceof Error && error.message === 'Unauthorized') {
       return NextResponse.json(
@@ -103,40 +105,22 @@ export async function POST(
       )
     }
 
-    try {
-      const supabase = getSupabaseServer()
-      const { data, error } = await supabase
-        .from('pdca_issues')
-        .insert({
-          client_id: clientId,
-          entity_id: entityId,
-          title,
-        })
-        .select()
-        .single()
-
-      if (error) throw error
-
-      return NextResponse.json({
-        success: true,
-        data: data as PdcaIssue,
-      })
-    } catch {
-      // デモモード
-      const newIssue: PdcaIssue = {
-        id: `issue-${Date.now()}`,
-        client_id: clientId,
-        entity_id: entityId,
-        title,
-        created_at: new Date().toISOString(),
-      }
-      demoIssues.push(newIssue)
-
-      return NextResponse.json({
-        success: true,
-        data: newIssue,
-      })
+    const newIssue: PdcaIssue = {
+      id: `issue-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      client_id: clientId,
+      entity_id: entityId,
+      title,
+      created_at: new Date().toISOString(),
     }
+
+    const allIssues = loadLocalIssues()
+    allIssues.push(newIssue)
+    saveLocalIssues(allIssues)
+
+    return NextResponse.json({
+      success: true,
+      data: newIssue,
+    })
   } catch (error) {
     if (error instanceof Error && error.message === 'Unauthorized') {
       return NextResponse.json(

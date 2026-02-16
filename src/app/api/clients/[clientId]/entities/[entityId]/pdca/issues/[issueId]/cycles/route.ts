@@ -1,37 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { getSupabaseServer } from '@/lib/supabase'
 import { ApiResponse, PdcaCycle, PdcaStatus } from '@/lib/types'
+import * as fs from 'fs'
+import * as path from 'path'
 
-// デモ用データ
-const demoCycles: PdcaCycle[] = [
-  {
-    id: 'cycle-1',
-    client_id: 'demo-client-1',
-    issue_id: 'issue-1',
-    cycle_date: '2025-02-01',
-    situation: '朝食利用率は60%、平均単価は1,200円',
-    issue: '単価が競合比で低い。メニューの魅力不足',
-    action: 'プレミアムメニュー3品追加、ディスプレイ改善',
-    target: '2月末までに単価1,500円達成',
-    status: 'doing',
-    created_at: '2025-02-01T00:00:00Z',
-    updated_at: '2025-02-01T00:00:00Z',
-  },
-  {
-    id: 'cycle-2',
-    client_id: 'demo-client-1',
-    issue_id: 'issue-1',
-    cycle_date: '2025-01-15',
-    situation: '朝食利用率は55%、平均単価は1,100円',
-    issue: '利用率が低い。認知不足',
-    action: 'チェックイン時の案内強化',
-    target: '1月末までに利用率60%達成',
-    status: 'done',
-    created_at: '2025-01-15T00:00:00Z',
-    updated_at: '2025-01-31T00:00:00Z',
-  },
-]
+// ローカル保存用のパス
+const LOCAL_CYCLES_PATH = path.join(process.cwd(), '.cache', 'pdca-cycles.json')
+
+// ローカルサイクルを読み込む
+function loadLocalCycles(): PdcaCycle[] {
+  try {
+    if (fs.existsSync(LOCAL_CYCLES_PATH)) {
+      return JSON.parse(fs.readFileSync(LOCAL_CYCLES_PATH, 'utf-8'))
+    }
+  } catch {
+    console.warn('ローカルサイクル読み込みエラー')
+  }
+  return []
+}
+
+// ローカルサイクルを保存
+function saveLocalCycles(cycles: PdcaCycle[]): void {
+  try {
+    const dir = path.dirname(LOCAL_CYCLES_PATH)
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true })
+    }
+    fs.writeFileSync(LOCAL_CYCLES_PATH, JSON.stringify(cycles, null, 2))
+  } catch (e) {
+    console.error('ローカルサイクル保存エラー:', e)
+  }
+}
 
 type RouteParams = {
   params: Promise<{ clientId: string; entityId: string; issueId: string }>
@@ -53,28 +52,18 @@ export async function GET(
       )
     }
 
-    try {
-      const supabase = getSupabaseServer()
-      const { data, error } = await supabase
-        .from('pdca_cycles')
-        .select('*')
-        .eq('client_id', clientId)
-        .eq('issue_id', issueId)
-        .order('cycle_date', { ascending: false })
+    const allCycles = loadLocalCycles()
+    const filtered = allCycles.filter(
+      (c) => c.client_id === clientId && c.issue_id === issueId
+    )
 
-      if (error) throw error
+    // サイクル日付の降順でソート
+    filtered.sort((a, b) => new Date(b.cycle_date).getTime() - new Date(a.cycle_date).getTime())
 
-      return NextResponse.json({
-        success: true,
-        data: data as PdcaCycle[],
-      })
-    } catch {
-      // デモモード
-      return NextResponse.json({
-        success: true,
-        data: demoCycles.filter((c) => c.issue_id === issueId),
-      })
-    }
+    return NextResponse.json({
+      success: true,
+      data: filtered,
+    })
   } catch (error) {
     if (error instanceof Error && error.message === 'Unauthorized') {
       return NextResponse.json(
@@ -90,7 +79,7 @@ export async function GET(
   }
 }
 
-// サイクル作成/更新
+// サイクル作成
 export async function POST(
   request: NextRequest,
   context: RouteParams
@@ -124,51 +113,28 @@ export async function POST(
       )
     }
 
-    try {
-      const supabase = getSupabaseServer()
-      const { data, error } = await supabase
-        .from('pdca_cycles')
-        .insert({
-          client_id: clientId,
-          issue_id: issueId,
-          cycle_date,
-          situation: situation || '',
-          issue: issue || '',
-          action: action || '',
-          target: target || '',
-          status: (status as PdcaStatus) || 'open',
-        })
-        .select()
-        .single()
-
-      if (error) throw error
-
-      return NextResponse.json({
-        success: true,
-        data: data as PdcaCycle,
-      })
-    } catch {
-      // デモモード
-      const newCycle: PdcaCycle = {
-        id: `cycle-${Date.now()}`,
-        client_id: clientId,
-        issue_id: issueId,
-        cycle_date,
-        situation: situation || '',
-        issue: issue || '',
-        action: action || '',
-        target: target || '',
-        status: (status as PdcaStatus) || 'open',
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }
-      demoCycles.push(newCycle)
-
-      return NextResponse.json({
-        success: true,
-        data: newCycle,
-      })
+    const newCycle: PdcaCycle = {
+      id: `cycle-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      client_id: clientId,
+      issue_id: issueId,
+      cycle_date,
+      situation: situation || '',
+      issue: issue || '',
+      action: action || '',
+      target: target || '',
+      status: (status as PdcaStatus) || 'open',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     }
+
+    const allCycles = loadLocalCycles()
+    allCycles.push(newCycle)
+    saveLocalCycles(allCycles)
+
+    return NextResponse.json({
+      success: true,
+      data: newCycle,
+    })
   } catch (error) {
     if (error instanceof Error && error.message === 'Unauthorized') {
       return NextResponse.json(
@@ -210,45 +176,30 @@ export async function PATCH(
       )
     }
 
-    const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
-    if (situation !== undefined) updates.situation = situation
-    if (issue !== undefined) updates.issue = issue
-    if (action !== undefined) updates.action = action
-    if (target !== undefined) updates.target = target
-    if (status !== undefined) updates.status = status
+    const allCycles = loadLocalCycles()
+    const idx = allCycles.findIndex((c) => c.id === id && c.client_id === clientId && c.issue_id === issueId)
 
-    try {
-      const supabase = getSupabaseServer()
-      const { data, error } = await supabase
-        .from('pdca_cycles')
-        .update(updates)
-        .eq('id', id)
-        .eq('client_id', clientId)
-        .eq('issue_id', issueId)
-        .select()
-        .single()
-
-      if (error) throw error
-
-      return NextResponse.json({
-        success: true,
-        data: data as PdcaCycle,
-      })
-    } catch {
-      // デモモード
-      const idx = demoCycles.findIndex((c) => c.id === id)
-      if (idx >= 0) {
-        demoCycles[idx] = { ...demoCycles[idx], ...updates } as PdcaCycle
-        return NextResponse.json({
-          success: true,
-          data: demoCycles[idx],
-        })
-      }
+    if (idx === -1) {
       return NextResponse.json(
         { success: false, error: 'サイクルが見つかりません' },
         { status: 404 }
       )
     }
+
+    // 更新
+    if (situation !== undefined) allCycles[idx].situation = situation
+    if (issue !== undefined) allCycles[idx].issue = issue
+    if (action !== undefined) allCycles[idx].action = action
+    if (target !== undefined) allCycles[idx].target = target
+    if (status !== undefined) allCycles[idx].status = status
+    allCycles[idx].updated_at = new Date().toISOString()
+
+    saveLocalCycles(allCycles)
+
+    return NextResponse.json({
+      success: true,
+      data: allCycles[idx],
+    })
   } catch (error) {
     if (error instanceof Error && error.message === 'Unauthorized') {
       return NextResponse.json(

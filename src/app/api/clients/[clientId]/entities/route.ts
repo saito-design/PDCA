@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { getSupabaseServer } from '@/lib/supabase'
 import { getStoreList } from '@/lib/excel-reader'
 import { ApiResponse, Entity } from '@/lib/types'
 import * as fs from 'fs'
@@ -64,49 +63,6 @@ function getJunestoryEntities(): Entity[] {
   return entities
 }
 
-// デモ用データ（Supabase未接続時）
-const demoEntities: Record<string, Entity[]> = {
-  'demo-client-1': [
-    {
-      id: 'demo-entity-1',
-      client_id: 'demo-client-1',
-      name: '本店',
-      sort_order: 10,
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: 'demo-entity-2',
-      client_id: 'demo-client-1',
-      name: '高田馬場店',
-      sort_order: 20,
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: 'demo-entity-3',
-      client_id: 'demo-client-1',
-      name: '渋谷店',
-      sort_order: 30,
-      created_at: new Date().toISOString(),
-    },
-  ],
-  'demo-client-2': [
-    {
-      id: 'demo-entity-4',
-      client_id: 'demo-client-2',
-      name: '営業部',
-      sort_order: 10,
-      created_at: new Date().toISOString(),
-    },
-    {
-      id: 'demo-entity-5',
-      client_id: 'demo-client-2',
-      name: '開発部',
-      sort_order: 20,
-      created_at: new Date().toISOString(),
-    },
-  ],
-}
-
 type RouteParams = {
   params: Promise<{ clientId: string }>
 }
@@ -127,47 +83,25 @@ export async function GET(
       )
     }
 
-    // Supabaseから取得を試みる
-    try {
-      const supabase = getSupabaseServer()
-      const { data, error } = await supabase
-        .from('entities')
-        .select('*')
-        .eq('client_id', clientId)
-        .order('sort_order')
-
-      if (error) throw error
-
-      return NextResponse.json({
-        success: true,
-        data: data as Entity[],
-      })
-    } catch {
-      // Supabase未接続時はデモデータ
-      console.warn('Supabase接続エラー: デモデータを使用')
-
-      // ジュネストリーの場合はエクセルから店舗一覧を取得
-      if (clientId === 'junestory') {
-        const junestoryEntities = getJunestoryEntities()
-        // ローカル保存されたエンティティも追加
-        const localEntities = loadLocalEntities()
-        const localForClient = localEntities[clientId] || []
-        return NextResponse.json({
-          success: true,
-          data: [...junestoryEntities, ...localForClient],
-        })
-      }
-
-      // デモデータとローカルデータをマージ
+    // ジュネストリーの場合はエクセルから店舗一覧を取得
+    if (clientId === 'junestory') {
+      const junestoryEntities = getJunestoryEntities()
       const localEntities = loadLocalEntities()
       const localForClient = localEntities[clientId] || []
-      const demoForClient = demoEntities[clientId] || []
-
       return NextResponse.json({
         success: true,
-        data: [...demoForClient, ...localForClient],
+        data: [...junestoryEntities, ...localForClient],
       })
     }
+
+    // その他のクライアントはローカルデータのみ
+    const localEntities = loadLocalEntities()
+    const localForClient = localEntities[clientId] || []
+
+    return NextResponse.json({
+      success: true,
+      data: localForClient,
+    })
   } catch (error) {
     if (error instanceof Error && error.message === 'Unauthorized') {
       return NextResponse.json(
@@ -211,20 +145,13 @@ export async function POST(
       created_at: new Date().toISOString(),
     }
 
-    // Supabaseに保存を試みる
-    try {
-      const supabase = getSupabaseServer()
-      const { error } = await supabase.from('entities').insert(newEntity)
-      if (error) throw error
-    } catch {
-      // Supabase未接続時はローカル保存
-      const localEntities = loadLocalEntities()
-      if (!localEntities[clientId]) {
-        localEntities[clientId] = []
-      }
-      localEntities[clientId].push(newEntity)
-      saveLocalEntities(localEntities)
+    // ローカル保存
+    const localEntities = loadLocalEntities()
+    if (!localEntities[clientId]) {
+      localEntities[clientId] = []
     }
+    localEntities[clientId].push(newEntity)
+    saveLocalEntities(localEntities)
 
     return NextResponse.json({
       success: true,

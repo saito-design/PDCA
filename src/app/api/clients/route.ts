@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { getSupabaseServer } from '@/lib/supabase'
 import { ApiResponse, Client } from '@/lib/types'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -33,21 +32,26 @@ function saveLocalClients(clients: Client[]): void {
   }
 }
 
-// デモ用データ（Supabase未接続時）
-const defaultClients: Client[] = [
+// マスター企業データ
+const masterClients: Client[] = [
   {
     id: 'junestory',
     name: '株式会社ジュネストリー',
     drive_folder_id: null,
-    created_at: new Date().toISOString(),
+    created_at: '2024-01-01T00:00:00.000Z',
+  },
+  {
+    id: 'tottori-kyosai',
+    name: '鳥取県市町村職員共済組合',
+    drive_folder_id: null,
+    created_at: '2026-02-16T00:00:00.000Z',
   },
 ]
 
-// デモクライアントを取得（ローカル保存と統合）
-function getDemoClients(): Client[] {
+// 全クライアントを取得（マスター + ローカル追加分）
+function getAllClients(): Client[] {
   const localClients = loadLocalClients()
-  // デフォルトクライアントとローカルクライアントをマージ（IDで重複排除）
-  const merged = [...defaultClients]
+  const merged = [...masterClients]
   for (const lc of localClients) {
     if (!merged.find(c => c.id === lc.id)) {
       merged.push(lc)
@@ -60,28 +64,10 @@ export async function GET(): Promise<NextResponse<ApiResponse<Client[]>>> {
   try {
     await requireAuth()
 
-    // Supabaseから取得を試みる
-    try {
-      const supabase = getSupabaseServer()
-      const { data, error } = await supabase
-        .from('clients')
-        .select('*')
-        .order('name')
-
-      if (error) throw error
-
-      return NextResponse.json({
-        success: true,
-        data: data as Client[],
-      })
-    } catch {
-      // Supabase未接続時はデモデータ
-      console.warn('Supabase接続エラー: デモデータを使用')
-      return NextResponse.json({
-        success: true,
-        data: getDemoClients(),
-      })
-    }
+    return NextResponse.json({
+      success: true,
+      data: getAllClients(),
+    })
   } catch (error) {
     if (error instanceof Error && error.message === 'Unauthorized') {
       return NextResponse.json(
@@ -98,7 +84,8 @@ export async function GET(): Promise<NextResponse<ApiResponse<Client[]>>> {
 }
 
 // 企業IDを自動生成
-function generateClientId(): string {
+function generateClientId(name: string): string {
+  // 名前からスラッグを生成（シンプルなID）
   const timestamp = Date.now().toString(36)
   const random = Math.random().toString(36).substring(2, 6)
   return `client-${timestamp}-${random}`
@@ -120,27 +107,17 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
       )
     }
 
-    // IDを自動生成
-    const id = generateClientId()
-
     const newClient: Client = {
-      id,
+      id: generateClientId(name),
       name: name.trim(),
       drive_folder_id: null,
       created_at: new Date().toISOString(),
     }
 
-    // Supabaseに保存を試みる
-    try {
-      const supabase = getSupabaseServer()
-      const { error } = await supabase.from('clients').insert(newClient)
-      if (error) throw error
-    } catch {
-      // Supabase未接続時はローカル保存
-      const localClients = loadLocalClients()
-      localClients.push(newClient)
-      saveLocalClients(localClients)
-    }
+    // ローカル保存
+    const localClients = loadLocalClients()
+    localClients.push(newClient)
+    saveLocalClients(localClients)
 
     return NextResponse.json({
       success: true,

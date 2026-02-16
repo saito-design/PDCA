@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Building2, LogOut, RefreshCw, FileSpreadsheet, FolderOpen, Plus, Copy, Check } from 'lucide-react'
+import { Building2, LogOut, RefreshCw, FileSpreadsheet, FolderOpen, Plus, Copy, Check, Trash2, AlertTriangle } from 'lucide-react'
 import type { Client, SessionData } from '@/lib/types'
 
 interface ClientDataInfo {
@@ -29,6 +29,12 @@ export default function ClientsPage() {
   const [showAddModal, setShowAddModal] = useState(false)
   const [newClientName, setNewClientName] = useState('')
   const [adding, setAdding] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<{
+    client: Client
+    stats: { entityCount: number; issueCount: number; cycleCount: number; chartCount: number }
+  } | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [loadingStats, setLoadingStats] = useState(false)
 
   useEffect(() => {
     fetchData()
@@ -151,6 +157,52 @@ export default function ClientsPage() {
     }
   }
 
+  const handleDeleteClick = async (client: Client, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setLoadingStats(true)
+    try {
+      const res = await fetch(`/api/clients/${client.id}`)
+      const data = await res.json()
+      if (data.success) {
+        setDeleteTarget({
+          client: data.data.client,
+          stats: data.data.stats,
+        })
+      } else {
+        alert(data.error || '企業情報の取得に失敗しました')
+      }
+    } catch {
+      alert('企業情報の取得に失敗しました')
+    } finally {
+      setLoadingStats(false)
+    }
+  }
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/clients/${deleteTarget.client.id}`, {
+        method: 'DELETE',
+      })
+      const data = await res.json()
+      if (data.success) {
+        setDeleteTarget(null)
+        fetchData()
+      } else {
+        alert(data.error || '削除に失敗しました')
+      }
+    } catch {
+      alert('削除に失敗しました')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const isMasterClient = (clientId: string) => {
+    return ['junestory', 'tottori-kyosai'].includes(clientId)
+  }
+
   const formatDate = (isoString: string | null) => {
     if (!isoString) return '未取得'
     const date = new Date(isoString)
@@ -224,6 +276,16 @@ export default function ClientsPage() {
                   <div className="font-semibold text-lg">{client.name}</div>
                   <div className="text-xs text-gray-400">ID: {client.id}</div>
                 </div>
+                {!isMasterClient(client.id) && (
+                  <button
+                    onClick={(e) => handleDeleteClick(client, e)}
+                    disabled={loadingStats}
+                    className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                    title="削除"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                )}
               </div>
 
               {/* データソース情報 */}
@@ -296,6 +358,55 @@ export default function ClientsPage() {
           </div>
         )}
       </main>
+
+      {/* 削除確認モーダル */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="bg-red-100 p-2 rounded-full">
+                <AlertTriangle className="text-red-600" size={24} />
+              </div>
+              <h3 className="text-lg font-semibold">企業を削除</h3>
+            </div>
+
+            <p className="text-gray-600 mb-4">
+              <span className="font-semibold">{deleteTarget.client.name}</span> を削除しますか？
+            </p>
+
+            {/* 関連データの表示 */}
+            <div className="bg-gray-50 rounded-lg p-4 mb-4">
+              <p className="text-sm font-medium text-gray-700 mb-2">削除される関連データ:</p>
+              <ul className="text-sm text-gray-600 space-y-1">
+                <li>・部署/店舗: {deleteTarget.stats.entityCount} 件</li>
+                <li>・PDCAイシュー: {deleteTarget.stats.issueCount} 件</li>
+                <li>・PDCAサイクル: {deleteTarget.stats.cycleCount} 件</li>
+                <li>・グラフ: {deleteTarget.stats.chartCount} 件</li>
+              </ul>
+            </div>
+
+            <p className="text-sm text-red-600 mb-4">
+              この操作は取り消せません。本当に削除しますか？
+            </p>
+
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handleDeleteConfirm}
+                disabled={deleting}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleting ? '削除中...' : '削除する'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 追加モーダル */}
       {showAddModal && (
