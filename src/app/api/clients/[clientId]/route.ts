@@ -1,111 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { ApiResponse, Client, PdcaIssue, PdcaCycle, Entity } from '@/lib/types'
-import * as fs from 'fs'
-import * as path from 'path'
+import { ApiResponse, Client } from '@/lib/types'
+import {
+  isDriveConfigured,
+  getPdcaFolderId,
+  loadJsonFromFolder,
+  saveJsonToFolder,
+  deleteFile,
+} from '@/lib/drive'
 
-// ローカル保存用のパス
-const LOCAL_CLIENTS_PATH = path.join(process.cwd(), '.cache', 'clients.json')
-const LOCAL_ENTITIES_PATH = path.join(process.cwd(), '.cache', 'entities.json')
-const LOCAL_ISSUES_PATH = path.join(process.cwd(), '.cache', 'pdca-issues.json')
-const LOCAL_CYCLES_PATH = path.join(process.cwd(), '.cache', 'pdca-cycles.json')
-const LOCAL_CHARTS_PATH = path.join(process.cwd(), '.cache', 'charts.json')
+const CLIENTS_FILENAME = 'clients.json'
 
-// マスター企業データ
-const masterClients: Client[] = [
-  {
-    id: 'junestory',
-    name: '株式会社ジュネストリー',
-    drive_folder_id: null,
-    created_at: '2024-01-01T00:00:00.000Z',
-  },
-  {
-    id: 'tottori-kyosai',
-    name: '鳥取県市町村職員共済組合',
-    drive_folder_id: null,
-    created_at: '2026-02-16T00:00:00.000Z',
-  },
-]
-
-function loadLocalClients(): Client[] {
+// Google Driveからクライアント一覧を読み込む
+async function loadClients(): Promise<Client[]> {
+  if (!isDriveConfigured()) {
+    return []
+  }
   try {
-    if (fs.existsSync(LOCAL_CLIENTS_PATH)) {
-      return JSON.parse(fs.readFileSync(LOCAL_CLIENTS_PATH, 'utf-8'))
-    }
-  } catch { /* ignore */ }
-  return []
-}
-
-function saveLocalClients(clients: Client[]): void {
-  try {
-    const dir = path.dirname(LOCAL_CLIENTS_PATH)
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true })
-    }
-    fs.writeFileSync(LOCAL_CLIENTS_PATH, JSON.stringify(clients, null, 2))
-  } catch (e) {
-    console.error('ローカルクライアント保存エラー:', e)
+    const pdcaFolderId = getPdcaFolderId()
+    const result = await loadJsonFromFolder<Client[]>(CLIENTS_FILENAME, pdcaFolderId)
+    return result?.data || []
+  } catch (error) {
+    console.warn('クライアント読み込みエラー:', error)
+    return []
   }
 }
 
-function loadLocalEntities(): Record<string, Entity[]> {
-  try {
-    if (fs.existsSync(LOCAL_ENTITIES_PATH)) {
-      return JSON.parse(fs.readFileSync(LOCAL_ENTITIES_PATH, 'utf-8'))
-    }
-  } catch { /* ignore */ }
-  return {}
-}
-
-function saveLocalEntities(entities: Record<string, Entity[]>): void {
-  try {
-    fs.writeFileSync(LOCAL_ENTITIES_PATH, JSON.stringify(entities, null, 2))
-  } catch { /* ignore */ }
-}
-
-function loadLocalIssues(): PdcaIssue[] {
-  try {
-    if (fs.existsSync(LOCAL_ISSUES_PATH)) {
-      return JSON.parse(fs.readFileSync(LOCAL_ISSUES_PATH, 'utf-8'))
-    }
-  } catch { /* ignore */ }
-  return []
-}
-
-function saveLocalIssues(issues: PdcaIssue[]): void {
-  try {
-    fs.writeFileSync(LOCAL_ISSUES_PATH, JSON.stringify(issues, null, 2))
-  } catch { /* ignore */ }
-}
-
-function loadLocalCycles(): PdcaCycle[] {
-  try {
-    if (fs.existsSync(LOCAL_CYCLES_PATH)) {
-      return JSON.parse(fs.readFileSync(LOCAL_CYCLES_PATH, 'utf-8'))
-    }
-  } catch { /* ignore */ }
-  return []
-}
-
-function saveLocalCycles(cycles: PdcaCycle[]): void {
-  try {
-    fs.writeFileSync(LOCAL_CYCLES_PATH, JSON.stringify(cycles, null, 2))
-  } catch { /* ignore */ }
-}
-
-function loadLocalCharts(): Record<string, unknown[]> {
-  try {
-    if (fs.existsSync(LOCAL_CHARTS_PATH)) {
-      return JSON.parse(fs.readFileSync(LOCAL_CHARTS_PATH, 'utf-8'))
-    }
-  } catch { /* ignore */ }
-  return {}
-}
-
-function saveLocalCharts(charts: Record<string, unknown[]>): void {
-  try {
-    fs.writeFileSync(LOCAL_CHARTS_PATH, JSON.stringify(charts, null, 2))
-  } catch { /* ignore */ }
+// Google Driveにクライアント一覧を保存
+async function saveClients(clients: Client[]): Promise<void> {
+  const pdcaFolderId = getPdcaFolderId()
+  await saveJsonToFolder(clients, CLIENTS_FILENAME, pdcaFolderId)
 }
 
 type RouteParams = {
@@ -135,9 +59,17 @@ export async function GET(
       )
     }
 
+    // Google Driveが未設定の場合はエラー
+    if (!isDriveConfigured()) {
+      return NextResponse.json(
+        { success: false, error: 'Google Driveが設定されていません' },
+        { status: 500 }
+      )
+    }
+
     // クライアントを検索
-    const allClients = [...masterClients, ...loadLocalClients()]
-    const client = allClients.find(c => c.id === clientId)
+    const clients = await loadClients()
+    const client = clients.find(c => c.id === clientId)
 
     if (!client) {
       return NextResponse.json(
@@ -146,17 +78,12 @@ export async function GET(
       )
     }
 
-    // 関連データ数を集計
-    const entities = loadLocalEntities()[clientId] || []
-    const issues = loadLocalIssues().filter(i => i.client_id === clientId)
-    const cycles = loadLocalCycles().filter(c => c.client_id === clientId)
-    const charts = loadLocalCharts()[clientId] || []
-
+    // TODO: 関連データ数を集計（将来実装）
     const stats: ClientStats = {
-      entityCount: entities.length,
-      issueCount: issues.length,
-      cycleCount: cycles.length,
-      chartCount: charts.length,
+      entityCount: 0,
+      issueCount: 0,
+      cycleCount: 0,
+      chartCount: 0,
     }
 
     return NextResponse.json({
@@ -194,17 +121,17 @@ export async function DELETE(
       )
     }
 
-    // マスター企業は削除不可
-    if (masterClients.find(c => c.id === clientId)) {
+    // Google Driveが未設定の場合はエラー
+    if (!isDriveConfigured()) {
       return NextResponse.json(
-        { success: false, error: 'マスター企業は削除できません' },
-        { status: 400 }
+        { success: false, error: 'Google Driveが設定されていません' },
+        { status: 500 }
       )
     }
 
-    // ローカルクライアントから削除
-    const localClients = loadLocalClients()
-    const clientIndex = localClients.findIndex(c => c.id === clientId)
+    // クライアント一覧を取得
+    const clients = await loadClients()
+    const clientIndex = clients.findIndex(c => c.id === clientId)
 
     if (clientIndex === -1) {
       return NextResponse.json(
@@ -213,30 +140,21 @@ export async function DELETE(
       )
     }
 
-    // クライアントを削除
-    localClients.splice(clientIndex, 1)
-    saveLocalClients(localClients)
+    const client = clients[clientIndex]
 
-    // 関連データも削除
-    // エンティティ
-    const entities = loadLocalEntities()
-    delete entities[clientId]
-    saveLocalEntities(entities)
+    // Google Driveからフォルダを削除（存在する場合）
+    if (client.drive_folder_id) {
+      try {
+        await deleteFile(client.drive_folder_id)
+      } catch (error) {
+        console.warn('企業フォルダの削除に失敗:', error)
+        // フォルダが既に削除されている場合は無視
+      }
+    }
 
-    // イシュー
-    const issues = loadLocalIssues()
-    const filteredIssues = issues.filter(i => i.client_id !== clientId)
-    saveLocalIssues(filteredIssues)
-
-    // サイクル
-    const cycles = loadLocalCycles()
-    const filteredCycles = cycles.filter(c => c.client_id !== clientId)
-    saveLocalCycles(filteredCycles)
-
-    // グラフ
-    const charts = loadLocalCharts()
-    delete charts[clientId]
-    saveLocalCharts(charts)
+    // クライアント一覧から削除
+    clients.splice(clientIndex, 1)
+    await saveClients(clients)
 
     return NextResponse.json({ success: true })
   } catch (error) {

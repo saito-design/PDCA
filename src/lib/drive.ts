@@ -296,3 +296,15 @@ export function getPdcaFolderId(): string {
   }
   return folderId
 }
+
+/**
+ * Deletes a file or folder by ID.
+ */
+export async function deleteFile(fileId: string): Promise<void> {
+  const drive = getDrive()
+  await drive.files.delete({
+    fileId,
+    supportsAllDrives: true,
+  })
+  console.log('deleteFile: deleted', fileId)
+}
