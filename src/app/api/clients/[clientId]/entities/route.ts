@@ -1,15 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { ApiResponse, Entity } from '@/lib/types'
+import { ApiResponse, Entity, Client } from '@/lib/types'
 import {
   isDriveConfigured,
   getPdcaFolderId,
-  ensureFolder,
   loadJsonFromFolder,
   saveJsonToFolder,
 } from '@/lib/drive'
 
+const CLIENTS_FILENAME = 'clients.json'
 const ENTITIES_FILENAME = 'entities.json'
+
+// Google Driveからクライアント一覧を読み込む
+async function loadClients(): Promise<Client[]> {
+  try {
+    const pdcaFolderId = getPdcaFolderId()
+    const result = await loadJsonFromFolder<Client[]>(CLIENTS_FILENAME, pdcaFolderId)
+    return result?.data || []
+  } catch (error) {
+    console.warn('クライアント読み込みエラー:', error)
+    return []
+  }
+}
 
 // Google Driveからエンティティを読み込む
 async function loadEntities(clientFolderId: string): Promise<Entity[]> {
@@ -27,10 +39,11 @@ async function saveEntities(entities: Entity[], clientFolderId: string): Promise
   await saveJsonToFolder(entities, ENTITIES_FILENAME, clientFolderId)
 }
 
-// 企業フォルダを取得または作成
-async function getClientFolder(clientId: string): Promise<string> {
-  const pdcaFolderId = getPdcaFolderId()
-  return await ensureFolder(clientId, pdcaFolderId)
+// 企業のdrive_folder_idを取得
+async function getClientFolderId(clientId: string): Promise<string | null> {
+  const clients = await loadClients()
+  const client = clients.find(c => c.id === clientId)
+  return client?.drive_folder_id || null
 }
 
 type RouteParams = {
@@ -61,8 +74,14 @@ export async function GET(
       })
     }
 
-    // 企業フォルダを取得
-    const clientFolderId = await getClientFolder(clientId)
+    // 企業のフォルダIDを取得
+    const clientFolderId = await getClientFolderId(clientId)
+    if (!clientFolderId) {
+      return NextResponse.json(
+        { success: false, error: '企業が見つかりません' },
+        { status: 404 }
+      )
+    }
 
     // Driveからエンティティを取得
     const entities = await loadEntities(clientFolderId)
@@ -112,8 +131,14 @@ export async function POST(
       )
     }
 
-    // 企業フォルダを取得または作成
-    const clientFolderId = await getClientFolder(clientId)
+    // 企業のフォルダIDを取得
+    const clientFolderId = await getClientFolderId(clientId)
+    if (!clientFolderId) {
+      return NextResponse.json(
+        { success: false, error: '企業が見つかりません' },
+        { status: 404 }
+      )
+    }
 
     // 新しいエンティティを作成
     const newEntity: Entity = {
