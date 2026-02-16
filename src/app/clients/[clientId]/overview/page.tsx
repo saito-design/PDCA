@@ -3,70 +3,44 @@
 import { useState, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, LogOut, BarChart3, FileText } from 'lucide-react'
-import type { Client, Entity, SessionData, PdcaStatus } from '@/lib/types'
+import type { Client, Entity, SessionData, PdcaIssue } from '@/lib/types'
 import { OverviewGrid } from '@/components/overview-grid'
 import { OverviewPdcaSummary } from '@/components/overview-pdca-summary'
 
-// デモ用KPIデータ
-const demoEntityKpis = [
-  {
-    entityId: 'demo-entity-1',
-    entityName: '本店',
-    kpis: [
-      { name: 'RevPAR', actual: 10500, target: 12000, trend: 'up' as const },
-      { name: 'OCC', actual: 78, target: 85, trend: 'up' as const },
-      { name: 'ADR', actual: 13500, target: 14000, trend: 'flat' as const },
-    ],
-  },
-  {
-    entityId: 'demo-entity-2',
-    entityName: '高田馬場店',
-    kpis: [
-      { name: 'RevPAR', actual: 9200, target: 10000, trend: 'down' as const },
-      { name: 'OCC', actual: 72, target: 80, trend: 'flat' as const },
-      { name: 'ADR', actual: 12800, target: 12500, trend: 'up' as const },
-    ],
-  },
-  {
-    entityId: 'demo-entity-3',
-    entityName: '渋谷店',
-    kpis: [
-      { name: 'RevPAR', actual: 11000, target: 11000, trend: 'up' as const },
-      { name: 'OCC', actual: 85, target: 85, trend: 'up' as const },
-      { name: 'ADR', actual: 13000, target: 13000, trend: 'flat' as const },
-    ],
-  },
-]
-
-// デモ用PDCAサマリー
-const demoPdcaSummaries = [
-  {
-    entityId: 'demo-entity-1',
-    entityName: '本店',
-    issues: [
-      { id: 'issue-1', title: '朝食単価アップ施策', latestStatus: 'doing' as PdcaStatus, latestDate: '2025-02-01', latestTarget: '2月末までに単価1,500円達成' },
-      { id: 'issue-2', title: '客室稼働率改善', latestStatus: 'open' as PdcaStatus, latestDate: '2025-01-20', latestTarget: '' },
-    ],
-  },
-  {
-    entityId: 'demo-entity-2',
-    entityName: '高田馬場店',
-    issues: [
-      { id: 'issue-3', title: 'スタッフ教育プログラム', latestStatus: 'doing' as PdcaStatus, latestDate: '2025-02-01', latestTarget: '3月末までに全員研修完了' },
-    ],
-  },
-  {
-    entityId: 'demo-entity-3',
-    entityName: '渋谷店',
-    issues: [
-      { id: 'issue-4', title: 'コスト削減施策', latestStatus: 'done' as PdcaStatus, latestDate: '2025-01-31', latestTarget: '光熱費10%削減' },
-      { id: 'issue-5', title: '顧客満足度向上', latestStatus: 'paused' as PdcaStatus, latestDate: '2025-01-15', latestTarget: 'NPS+10ポイント' },
-    ],
-  },
-]
+// デモ用KPIデータ（将来的にはAPIから取得）
+const demoEntityKpis: { entityId: string; entityName: string; kpis: { name: string; actual: number; target: number; trend: 'up' | 'down' | 'flat' }[] }[] = []
 
 type PageProps = {
   params: Promise<{ clientId: string }>
+}
+
+// イシューからサマリーを構築
+interface PdcaSummary {
+  entityId: string
+  entityName: string
+  issues: {
+    id: string
+    title: string
+    latestStatus: PdcaIssue['status']
+    latestDate: string
+    latestTarget: string
+  }[]
+}
+
+function buildSummaries(entities: Entity[], issues: PdcaIssue[]): PdcaSummary[] {
+  return entities.map(entity => ({
+    entityId: entity.id,
+    entityName: entity.name,
+    issues: issues
+      .filter(i => i.entity_id === entity.id)
+      .map(i => ({
+        id: i.id,
+        title: i.title,
+        latestStatus: i.status,
+        latestDate: i.updated_at,
+        latestTarget: '', // 将来的にはサイクルから取得
+      }))
+  }))
 }
 
 export default function OverviewPage({ params }: PageProps) {
@@ -76,6 +50,7 @@ export default function OverviewPage({ params }: PageProps) {
   const [user, setUser] = useState<SessionData | null>(null)
   const [client, setClient] = useState<Client | null>(null)
   const [entities, setEntities] = useState<Entity[]>([])
+  const [issues, setIssues] = useState<PdcaIssue[]>([])
   const [activeTab, setActiveTab] = useState<'kpi' | 'pdca'>('kpi')
   const [loading, setLoading] = useState(true)
 
@@ -104,6 +79,13 @@ export default function OverviewPage({ params }: PageProps) {
         if (entitiesData.success) {
           setEntities(entitiesData.data)
         }
+
+        // 全イシュー取得
+        const issuesRes = await fetch(`/api/clients/${clientId}/issues`)
+        const issuesData = await issuesRes.json()
+        if (issuesData.success) {
+          setIssues(issuesData.data)
+        }
       } catch (error) {
         console.error('Fetch error:', error)
       } finally {
@@ -113,6 +95,9 @@ export default function OverviewPage({ params }: PageProps) {
 
     fetchData()
   }, [router, clientId])
+
+  // イシューからサマリーを構築
+  const pdcaSummaries = buildSummaries(entities, issues)
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' })
@@ -203,7 +188,7 @@ export default function OverviewPage({ params }: PageProps) {
         ) : (
           <OverviewPdcaSummary
             entities={entities}
-            summaries={demoPdcaSummaries}
+            summaries={pdcaSummaries}
             onSelectEntity={handleSelectEntity}
           />
         )}

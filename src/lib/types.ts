@@ -59,17 +59,19 @@ export interface Chart {
   updated_at: string
 }
 
-// PDCAイシュー
+// PDCAステータス
+export type PdcaStatus = 'open' | 'doing' | 'done' | 'paused'
+
+// PDCAイシュー（タスク）
 export interface PdcaIssue {
   id: string
   client_id: string
   entity_id: string
   title: string
+  status: PdcaStatus
   created_at: string
+  updated_at: string
 }
-
-// PDCAサイクル
-export type PdcaStatus = 'open' | 'doing' | 'done' | 'paused'
 
 export interface PdcaCycle {
   id: string
