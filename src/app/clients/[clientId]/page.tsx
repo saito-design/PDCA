@@ -2,7 +2,7 @@
 
 import { useState, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
-import { Store, ChevronLeft, LogOut, LayoutDashboard, Eye, Plus } from 'lucide-react'
+import { Store, ChevronLeft, LogOut, LayoutDashboard, Eye, Plus, FileText } from 'lucide-react'
 import type { Entity, Client, SessionData } from '@/lib/types'
 
 type PageProps = {
@@ -76,6 +76,10 @@ export default function EntitiesPage({ params }: PageProps) {
 
   const handleOverview = () => {
     router.push(`/clients/${clientId}/overview`)
+  }
+
+  const handleReport = () => {
+    router.push(`/clients/${clientId}/reports/preview`)
   }
 
   const handleAddEntity = async () => {
@@ -159,6 +163,13 @@ export default function EntitiesPage({ params }: PageProps) {
             >
               <Eye size={16} />
               全体ビュー
+            </button>
+            <button
+              onClick={handleReport}
+              className="flex items-center gap-2 bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700"
+            >
+              <FileText size={16} />
+              レポート
             </button>
           </div>
         </div>

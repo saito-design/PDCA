@@ -83,8 +83,8 @@ export default function OverviewPage({ params }: PageProps) {
           setEntities(entitiesData.data)
         }
 
-        // 全イシュー取得
-        const issuesRes = await fetch(`/api/clients/${clientId}/issues`)
+        // 全PDCAタスク取得
+        const issuesRes = await fetch(`/api/clients/${clientId}/pdca-tasks`)
         const issuesData = await issuesRes.json()
         if (issuesData.success) {
           setIssues(issuesData.data)

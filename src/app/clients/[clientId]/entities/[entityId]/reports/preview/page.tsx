@@ -60,7 +60,7 @@ export default function ReportPreviewPage({ params }: PageProps) {
 
         // 最新サイクル
         const cyclesRes = await fetch(
-          `/api/clients/${clientId}/entities/${entityId}/pdca/issues/issue-1/cycles`
+          `/api/clients/${clientId}/entities/${entityId}/pdca/tasks/task-1/cycles`
         )
         const cyclesData = await cyclesRes.json()
         if (cyclesData.success && cyclesData.data.length > 0) {
@@ -140,7 +140,7 @@ export default function ReportPreviewPage({ params }: PageProps) {
             {/* ヘッダー */}
             <div className="mb-8">
               <div className="text-lg">
-                {client?.name}
+                {client?.name} 様
               </div>
               {entity && (
                 <div className="text-lg">
@@ -197,93 +197,43 @@ export default function ReportPreviewPage({ params }: PageProps) {
             )}
 
             {/* 今回の議題 */}
-            {latestCycle && (
+            {latestCycle && (latestCycle.situation || latestCycle.issue || latestCycle.action || latestCycle.target) && (
               <section className="mb-8">
                 <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
                   <span className="w-1 h-6 bg-green-600 inline-block"></span>
-                  今回の議題
+                  ミーティング内容
                   <span className="text-sm font-normal text-gray-500 ml-2">
                     ({latestCycle.cycle_date})
                   </span>
                 </h2>
 
-                {/* PDCAボックスフロー */}
-                <div className="space-y-3">
-                  {/* 現状 */}
+                {/* 箇条書き形式 */}
+                <ul className="space-y-2 text-sm text-gray-700 ml-4">
                   {latestCycle.situation && (
-                    <div className="relative">
-                      <div className="bg-blue-50 border-2 border-blue-400 rounded-lg p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded">S</span>
-                          <span className="font-bold text-blue-800">現状</span>
-                        </div>
-                        <p className="text-sm whitespace-pre-wrap text-gray-700">
-                          {latestCycle.situation}
-                        </p>
-                      </div>
-                      <div className="flex justify-center my-1">
-                        <svg width="24" height="20" viewBox="0 0 24 20" className="text-gray-400">
-                          <path d="M12 0 L12 14 M6 10 L12 16 L18 10" stroke="currentColor" strokeWidth="2" fill="none"/>
-                        </svg>
-                      </div>
-                    </div>
+                    <li className="flex">
+                      <span className="font-semibold text-blue-700 w-20 shrink-0">現状:</span>
+                      <span className="whitespace-pre-wrap">{latestCycle.situation}</span>
+                    </li>
                   )}
-
-                  {/* 課題 */}
                   {latestCycle.issue && (
-                    <div className="relative">
-                      <div className="bg-orange-50 border-2 border-orange-400 rounded-lg p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="bg-orange-500 text-white text-xs font-bold px-2 py-1 rounded">I</span>
-                          <span className="font-bold text-orange-800">課題</span>
-                        </div>
-                        <p className="text-sm whitespace-pre-wrap text-gray-700">
-                          {latestCycle.issue}
-                        </p>
-                      </div>
-                      <div className="flex justify-center my-1">
-                        <svg width="24" height="20" viewBox="0 0 24 20" className="text-gray-400">
-                          <path d="M12 0 L12 14 M6 10 L12 16 L18 10" stroke="currentColor" strokeWidth="2" fill="none"/>
-                        </svg>
-                      </div>
-                    </div>
+                    <li className="flex">
+                      <span className="font-semibold text-orange-600 w-20 shrink-0">課題:</span>
+                      <span className="whitespace-pre-wrap">{latestCycle.issue}</span>
+                    </li>
                   )}
-
-                  {/* アクション / 新規タスク */}
                   {latestCycle.action && (
-                    <div className="relative">
-                      <div className="bg-green-50 border-2 border-green-400 rounded-lg p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="bg-green-600 text-white text-xs font-bold px-2 py-1 rounded">A</span>
-                          <span className="font-bold text-green-800">アクション / 新規タスク</span>
-                        </div>
-                        <p className="text-sm whitespace-pre-wrap text-gray-700">
-                          {latestCycle.action}
-                        </p>
-                      </div>
-                      <div className="flex justify-center my-1">
-                        <svg width="24" height="20" viewBox="0 0 24 20" className="text-gray-400">
-                          <path d="M12 0 L12 14 M6 10 L12 16 L18 10" stroke="currentColor" strokeWidth="2" fill="none"/>
-                        </svg>
-                      </div>
-                    </div>
+                    <li className="flex">
+                      <span className="font-semibold text-green-700 w-20 shrink-0">アクション:</span>
+                      <span className="whitespace-pre-wrap">{latestCycle.action}</span>
+                    </li>
                   )}
-
-                  {/* 目標 */}
                   {latestCycle.target && (
-                    <div>
-                      <div className="bg-purple-50 border-2 border-purple-400 rounded-lg p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="bg-purple-600 text-white text-xs font-bold px-2 py-1 rounded">T</span>
-                          <span className="font-bold text-purple-800">目標</span>
-                        </div>
-                        <p className="text-sm whitespace-pre-wrap text-gray-700">
-                          {latestCycle.target}
-                        </p>
-                      </div>
-                    </div>
+                    <li className="flex">
+                      <span className="font-semibold text-purple-700 w-20 shrink-0">目標:</span>
+                      <span className="whitespace-pre-wrap">{latestCycle.target}</span>
+                    </li>
                   )}
-                </div>
+                </ul>
               </section>
             )}
 

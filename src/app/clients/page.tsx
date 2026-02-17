@@ -379,7 +379,7 @@ export default function ClientsPage() {
               <p className="text-sm font-medium text-gray-700 mb-2">削除される関連データ:</p>
               <ul className="text-sm text-gray-600 space-y-1">
                 <li>・部署/店舗: {deleteTarget.stats.entityCount} 件</li>
-                <li>・PDCAイシュー: {deleteTarget.stats.issueCount} 件</li>
+                <li>・PDCAタスク: {deleteTarget.stats.issueCount} 件</li>
                 <li>・PDCAサイクル: {deleteTarget.stats.cycleCount} 件</li>
                 <li>・グラフ: {deleteTarget.stats.chartCount} 件</li>
               </ul>

@@ -74,7 +74,7 @@ export interface Task {
   updated_at: string
 }
 
-// PDCAイシュー（タスク）
+// PDCAタスク
 export interface PdcaIssue {
   id: string
   client_id: string
@@ -84,6 +84,9 @@ export interface PdcaIssue {
   created_at: string
   updated_at: string
 }
+
+// エイリアス（用語統一: Issue → Task）
+export type PdcaTask = PdcaIssue
 
 export interface PdcaCycle {
   id: string

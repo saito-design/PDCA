@@ -167,7 +167,7 @@ export default function DashboardPage({ params }: PageProps) {
         setCyclesLoading(true)
         try {
           const cyclesRes = await fetch(
-            `/api/clients/${clientId}/entities/${entityId}/pdca/issues/issue-1/cycles`
+            `/api/clients/${clientId}/entities/${entityId}/pdca/tasks/task-1/cycles`
           )
           const cyclesData = await cyclesRes.json()
           if (cyclesData.success) {
@@ -257,7 +257,7 @@ export default function DashboardPage({ params }: PageProps) {
   const handleSavePdca = async (data: { situation: string; issue: string; action: string; target: string }) => {
     try {
       const res = await fetch(
-        `/api/clients/${clientId}/entities/${entityId}/pdca/issues/issue-1/cycles`,
+        `/api/clients/${clientId}/entities/${entityId}/pdca/tasks/task-1/cycles`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -275,7 +275,7 @@ export default function DashboardPage({ params }: PageProps) {
       if (result.success) {
         // 保存成功 - サイクル一覧を再取得
         const cyclesRes = await fetch(
-          `/api/clients/${clientId}/entities/${entityId}/pdca/issues/issue-1/cycles`
+          `/api/clients/${clientId}/entities/${entityId}/pdca/tasks/task-1/cycles`
         )
         const cyclesData = await cyclesRes.json()
         if (cyclesData.success) {
@@ -295,7 +295,7 @@ export default function DashboardPage({ params }: PageProps) {
   const handleUpdateCycle = async (cycle: PdcaCycle) => {
     try {
       const res = await fetch(
-        `/api/clients/${clientId}/entities/${entityId}/pdca/issues/issue-1/cycles`,
+        `/api/clients/${clientId}/entities/${entityId}/pdca/tasks/task-1/cycles`,
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },

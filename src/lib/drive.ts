@@ -69,11 +69,11 @@ export async function listFilesInFolder(
   orderBy: string = 'modifiedTime desc'
 ) {
   const drive = getDrive()
-  const isSharedDriveRoot = folderId.startsWith('0A')
+  const isSharedRoot = isSharedDriveRoot(folderId)
 
   // 共有ドライブのルートの場合は、親フォルダの条件を変える
   let query: string
-  if (isSharedDriveRoot) {
+  if (isSharedRoot) {
     // 共有ドライブのルート直下のファイルを検索
     // parents条件なしで、driveIdとcorpora: driveで検索
     const parentCondition = `'${folderId}' in parents or parents = '${folderId}'`
@@ -90,7 +90,7 @@ export async function listFilesInFolder(
       pageSize: 100,
       includeItemsFromAllDrives: true,
       supportsAllDrives: true,
-      ...(isSharedDriveRoot ? { driveId: folderId, corpora: 'drive' } : { corpora: 'allDrives' }),
+      ...(isSharedRoot ? { driveId: folderId, corpora: 'drive' } : { corpora: 'allDrives' }),
     })
     return res.data.files || []
   } catch (error) {
