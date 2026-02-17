@@ -1,7 +1,7 @@
 'use client'
 
-import { CheckCircle, PlayCircle, PauseCircle, Circle, AlertCircle } from 'lucide-react'
-import type { Entity, PdcaStatus } from '@/lib/types'
+import { CheckCircle, PlayCircle, PauseCircle, Circle, AlertCircle, ListTodo } from 'lucide-react'
+import type { Entity, PdcaStatus, Task } from '@/lib/types'
 
 interface PdcaSummary {
   entityId: string
@@ -13,6 +13,7 @@ interface PdcaSummary {
     latestDate: string
     latestTarget: string
   }[]
+  tasks?: Task[]
 }
 
 interface OverviewPdcaSummaryProps {
@@ -29,18 +30,19 @@ const STATUS_CONFIG: Record<PdcaStatus, { label: string; color: string; icon: ty
 }
 
 export function OverviewPdcaSummary({ entities, summaries, onSelectEntity }: OverviewPdcaSummaryProps) {
-  // 全体のステータス集計
-  const statusCounts = summaries.reduce(
-    (acc, summary) => {
-      summary.issues.forEach((issue) => {
-        acc[issue.latestStatus] = (acc[issue.latestStatus] || 0) + 1
-      })
+  // 全タスクを集計（重複除去）
+  const allTasks = summaries.length > 0 ? (summaries[0].tasks || []) : []
+
+  // タスクのステータス集計
+  const statusCounts = allTasks.reduce(
+    (acc, task) => {
+      acc[task.status] = (acc[task.status] || 0) + 1
       return acc
     },
     {} as Record<PdcaStatus, number>
   )
 
-  const totalIssues = Object.values(statusCounts).reduce((a, b) => a + b, 0)
+  const totalTasks = allTasks.length
 
   return (
     <div className="space-y-6">
@@ -59,7 +61,7 @@ export function OverviewPdcaSummary({ entities, summaries, onSelectEntity }: Ove
                 </div>
                 <div className="text-2xl font-bold mt-2">{count}</div>
                 <div className="text-xs text-gray-500">
-                  {totalIssues > 0 ? Math.round((count / totalIssues) * 100) : 0}%
+                  {totalTasks > 0 ? Math.round((count / totalTasks) * 100) : 0}%
                 </div>
               </div>
             )
@@ -67,67 +69,56 @@ export function OverviewPdcaSummary({ entities, summaries, onSelectEntity }: Ove
         </div>
       </div>
 
-      {/* 部署/店舗別 */}
+      {/* 全タスク一覧 */}
       <div className="bg-white rounded-2xl shadow">
-        <div className="p-4 border-b">
-          <h3 className="font-semibold">部署/店舗別イシュー</h3>
+        <div className="p-4 border-b flex items-center gap-2">
+          <ListTodo size={18} className="text-green-600" />
+          <h3 className="font-semibold">タスク一覧</h3>
+          <span className="text-sm text-gray-500">({allTasks.length}件)</span>
         </div>
-        <div className="divide-y">
-          {entities.map((entity) => {
-            const summary = summaries.find((s) => s.entityId === entity.id)
-            const issues = summary?.issues || []
-
-            return (
-              <div key={entity.id} className="p-4">
-                <button
-                  onClick={() => onSelectEntity(entity.id)}
-                  className="font-medium text-blue-600 hover:underline mb-2 block"
+        <div className="divide-y max-h-[500px] overflow-y-auto">
+          {allTasks.length > 0 ? (
+            allTasks.map((task) => {
+              const config = STATUS_CONFIG[task.status]
+              const Icon = config.icon
+              const formatDate = (dateStr: string) => {
+                const date = new Date(dateStr)
+                return date.toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' })
+              }
+              return (
+                <div
+                  key={task.id}
+                  className="p-3 flex items-start justify-between gap-4 hover:bg-gray-50"
                 >
-                  {entity.name}
-                </button>
-
-                {issues.length > 0 ? (
-                  <div className="space-y-2">
-                    {issues.slice(0, 3).map((issue) => {
-                      const config = STATUS_CONFIG[issue.latestStatus]
-                      const Icon = config.icon
-                      return (
-                        <div
-                          key={issue.id}
-                          className="flex items-start justify-between gap-4 text-sm"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="font-medium truncate">{issue.title}</div>
-                            {issue.latestTarget && (
-                              <div className="text-xs text-gray-500 truncate">
-                                目標: {issue.latestTarget}
-                              </div>
-                            )}
-                          </div>
-                          <span
-                            className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${config.color}`}
-                          >
-                            <Icon size={12} />
-                            {config.label}
-                          </span>
-                        </div>
-                      )
-                    })}
-                    {issues.length > 3 && (
-                      <div className="text-xs text-gray-500">
-                        他 {issues.length - 3} 件
-                      </div>
-                    )}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <ListTodo size={14} className="text-green-600 flex-shrink-0" />
+                      <div className="font-medium">{task.title}</div>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-gray-500 mt-1 ml-5">
+                      {task.entity_name && (
+                        <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded">
+                          {task.entity_name}
+                        </span>
+                      )}
+                      <span>{formatDate(task.date)}</span>
+                    </div>
                   </div>
-                ) : (
-                  <div className="flex items-center gap-2 text-sm text-gray-500">
-                    <AlertCircle size={14} />
-                    イシューなし
-                  </div>
-                )}
-              </div>
-            )
-          })}
+                  <span
+                    className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded-full whitespace-nowrap ${config.color}`}
+                  >
+                    <Icon size={12} />
+                    {config.label}
+                  </span>
+                </div>
+              )
+            })
+          ) : (
+            <div className="p-8 text-center text-gray-500">
+              <AlertCircle size={24} className="mx-auto mb-2 text-gray-300" />
+              タスクがありません
+            </div>
+          )}
         </div>
       </div>
     </div>

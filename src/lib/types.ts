@@ -62,6 +62,18 @@ export interface Chart {
 // PDCAステータス
 export type PdcaStatus = 'open' | 'doing' | 'done' | 'paused'
 
+// タスク（シンプル構造）
+export interface Task {
+  id: string
+  client_id: string
+  entity_name: string       // 部署名を直接保持
+  title: string
+  status: PdcaStatus
+  date: string              // 登録日
+  created_at: string
+  updated_at: string
+}
+
 // PDCAイシュー（タスク）
 export interface PdcaIssue {
   id: string

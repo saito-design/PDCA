@@ -131,9 +131,11 @@ export async function saveFile(
   existingFileId?: string
 ) {
   const drive = getDrive()
+  // UTF-8を明示的に指定
+  const buffer = typeof content === 'string' ? Buffer.from(content, 'utf-8') : content
   const media = {
-    mimeType,
-    body: typeof content === 'string' ? Readable.from([content]) : Readable.from(content),
+    mimeType: mimeType + '; charset=utf-8',
+    body: Readable.from(buffer),
   }
 
   if (existingFileId) {

@@ -3,13 +3,14 @@
 import { useState, useEffect, useMemo, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, LogOut, PenTool, Store, RefreshCw, Settings2, X } from 'lucide-react'
-import type { ChartConfig, GlobalFilters, SessionData, Client, Entity, PdcaCycle } from '@/lib/types'
+import type { ChartConfig, GlobalFilters, SessionData, Client, Entity, PdcaCycle, Task, PdcaStatus } from '@/lib/types'
 import { KpiGrid } from '@/components/kpi-card'
 import { ChartRenderer } from '@/components/chart-renderer'
 import { PdcaEditor } from '@/components/pdca-editor'
 import { MeetingHistory } from '@/components/meeting-history'
 import { ReportExportButton } from '@/components/report-export-button'
 import { SalesChart } from '@/components/sales-chart'
+import { TaskManager } from '@/components/task-manager'
 
 interface KpiData {
   key: string
@@ -56,6 +57,8 @@ export default function DashboardPage({ params }: PageProps) {
   const [charts, setCharts] = useState<ChartConfig[]>([])
   const [cycles, setCycles] = useState<PdcaCycle[]>([])
   const [cyclesLoading, setCyclesLoading] = useState(false)
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [tasksLoading, setTasksLoading] = useState(false)
   const [globalFilters, setGlobalFilters] = useState<GlobalFilters>({ store: '全店', lastN: 6 })
   const [loading, setLoading] = useState(true)
 
@@ -172,6 +175,20 @@ export default function DashboardPage({ params }: PageProps) {
         } finally {
           setCyclesLoading(false)
         }
+
+        // タスク一覧を取得
+        setTasksLoading(true)
+        try {
+          const tasksRes = await fetch(`/api/clients/${clientId}/tasks`)
+          const tasksData = await tasksRes.json()
+          if (tasksData.success) {
+            setTasks(tasksData.data)
+          }
+        } catch {
+          // エラーを無視
+        } finally {
+          setTasksLoading(false)
+        }
       } catch (error) {
         console.error('Fetch error:', error)
       } finally {
@@ -271,8 +288,100 @@ export default function DashboardPage({ params }: PageProps) {
     }
   }
 
+  // サイクル更新（過去の履歴を編集）
+  const handleUpdateCycle = async (cycle: PdcaCycle) => {
+    try {
+      const res = await fetch(
+        `/api/clients/${clientId}/entities/${entityId}/pdca/issues/issue-1/cycles`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: cycle.id,
+            situation: cycle.situation,
+            issue: cycle.issue,
+            action: cycle.action,
+            target: cycle.target,
+            status: cycle.status,
+          }),
+        }
+      )
+      const result = await res.json()
+      if (result.success) {
+        setCycles(prev => prev.map(c => c.id === cycle.id ? result.data : c))
+      } else {
+        alert('更新に失敗しました: ' + result.error)
+      }
+    } catch (error) {
+      console.error('Update cycle error:', error)
+      alert('更新に失敗しました')
+    }
+  }
+
   const handleStoreChange = (store: string) => {
     setGlobalFilters((prev) => ({ ...prev, store }))
+  }
+
+  // タスクステータス変更
+  const handleTaskStatusChange = async (taskId: string, newStatus: PdcaStatus) => {
+    try {
+      const res = await fetch(`/api/clients/${clientId}/tasks/${taskId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      })
+      const result = await res.json()
+      if (result.success) {
+        setTasks(prev => prev.map(t => t.id === taskId ? result.data : t))
+      } else {
+        alert('ステータス更新に失敗: ' + result.error)
+      }
+    } catch (error) {
+      console.error('Task status change error:', error)
+      alert('ステータス更新に失敗しました')
+    }
+  }
+
+  // タスク追加
+  const handleAddTask = async (title: string) => {
+    try {
+      const res = await fetch(`/api/clients/${clientId}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title,
+          entity_name: entity?.name || '',
+          status: 'open',
+        }),
+      })
+      const result = await res.json()
+      if (result.success) {
+        setTasks(prev => [result.data, ...prev])
+      } else {
+        alert('タスク追加に失敗: ' + result.error)
+      }
+    } catch (error) {
+      console.error('Add task error:', error)
+      alert('タスク追加に失敗しました')
+    }
+  }
+
+  // タスク削除
+  const handleDeleteTask = async (taskId: string) => {
+    try {
+      const res = await fetch(`/api/clients/${clientId}/tasks/${taskId}`, {
+        method: 'DELETE',
+      })
+      const result = await res.json()
+      if (result.success) {
+        setTasks(prev => prev.filter(t => t.id !== taskId))
+      } else {
+        alert('タスク削除に失敗: ' + result.error)
+      }
+    } catch (error) {
+      console.error('Delete task error:', error)
+      alert('タスク削除に失敗しました')
+    }
   }
 
   const handleRefreshData = async () => {
@@ -347,39 +456,6 @@ export default function DashboardPage({ params }: PageProps) {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            {/* 店舗フィルター */}
-            <div className="flex items-center gap-2">
-              <Store size={16} className="text-gray-400" />
-              <select
-                value={globalFilters.store}
-                onChange={(e) => handleStoreChange(e.target.value)}
-                className="text-sm border rounded-lg px-2 py-1"
-              >
-                <option value="全店">全店</option>
-                {stores.map((store) => (
-                  <option key={store} value={store}>
-                    {store}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {/* データ更新ボタン */}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleRefreshData}
-                disabled={refreshing}
-                className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 disabled:opacity-50"
-                title={cacheUpdatedAt ? `最終更新: ${new Date(cacheUpdatedAt).toLocaleString('ja-JP')}` : 'データ更新'}
-              >
-                <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
-                {refreshing ? '更新中...' : 'データ更新'}
-              </button>
-              {cacheUpdatedAt && (
-                <span className="text-xs text-gray-400">
-                  {new Date(cacheUpdatedAt).toLocaleDateString('ja-JP')}
-                </span>
-              )}
-            </div>
             <ReportExportButton clientId={clientId} entityId={entityId} />
             <span className="text-sm text-gray-600">{user?.name}</span>
             <button
@@ -395,95 +471,99 @@ export default function DashboardPage({ params }: PageProps) {
       {/* Main */}
       <main className="max-w-7xl mx-auto px-4 py-6">
         <div className="grid grid-cols-12 gap-6">
-          {/* Left: KPI + Charts */}
-          <div className="col-span-5 space-y-4">
-            {/* KPI Section */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
+          {/* Left: KPI + Charts (折りたたみ) */}
+          <div className="col-span-5">
+            <details className="bg-white rounded-2xl shadow">
+              <summary className="p-4 cursor-pointer flex items-center justify-between list-none">
                 <div className="flex items-center gap-2">
-                  <h2 className="text-lg font-bold">KPI</h2>
+                  <h2 className="text-lg font-bold">データ表示</h2>
+                  <span className="text-xs text-gray-400">クリックで開閉</span>
+                </div>
+                <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setShowKpiSettings(true)}
+                    onClick={(e) => { e.preventDefault(); setShowKpiSettings(true) }}
                     className="text-gray-400 hover:text-gray-600"
                     title="表示項目を設定"
                   >
                     <Settings2 size={16} />
                   </button>
+                  <button
+                    onClick={(e) => { e.preventDefault(); handleOpenChartStudio() }}
+                    className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
+                  >
+                    <PenTool size={14} />
+                    グラフ作成
+                  </button>
                 </div>
-                <button
-                  onClick={handleOpenChartStudio}
-                  className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
-                >
-                  <PenTool size={14} />
-                  グラフ作成
-                </button>
-              </div>
+              </summary>
 
-              {/* KPI設定モーダル */}
-              {showKpiSettings && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                  <div className="bg-white rounded-xl shadow-lg p-4 w-80 max-h-96 overflow-y-auto">
-                    <div className="flex items-center justify-between mb-3">
-                      <h3 className="font-bold">KPI表示設定</h3>
-                      <button onClick={() => setShowKpiSettings(false)} className="text-gray-400 hover:text-gray-600">
-                        <X size={20} />
+              <div className="p-4 pt-0 space-y-4">
+                {/* KPI設定モーダル */}
+                {showKpiSettings && (
+                  <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-xl shadow-lg p-4 w-80 max-h-96 overflow-y-auto">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="font-bold">KPI表示設定</h3>
+                        <button onClick={() => setShowKpiSettings(false)} className="text-gray-400 hover:text-gray-600">
+                          <X size={20} />
+                        </button>
+                      </div>
+                      <p className="text-xs text-gray-500 mb-3">チェックを外すと非表示になります</p>
+                      <div className="space-y-2">
+                        {kpis.map((kpi) => (
+                          <label key={kpi.key} className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={!hiddenKpis.includes(kpi.key)}
+                              onChange={() => toggleKpiVisibility(kpi.key)}
+                              className="rounded"
+                            />
+                            <span className="text-sm">{kpi.name}</span>
+                            <span className="text-xs text-gray-400">({kpi.unit})</span>
+                          </label>
+                        ))}
+                      </div>
+                      <button
+                        onClick={() => setShowKpiSettings(false)}
+                        className="mt-4 w-full bg-blue-600 text-white py-2 rounded-lg text-sm hover:bg-blue-700"
+                      >
+                        閉じる
                       </button>
                     </div>
-                    <p className="text-xs text-gray-500 mb-3">チェックを外すと非表示になります</p>
-                    <div className="space-y-2">
-                      {kpis.map((kpi) => (
-                        <label key={kpi.key} className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={!hiddenKpis.includes(kpi.key)}
-                            onChange={() => toggleKpiVisibility(kpi.key)}
-                            className="rounded"
-                          />
-                          <span className="text-sm">{kpi.name}</span>
-                          <span className="text-xs text-gray-400">({kpi.unit})</span>
-                        </label>
-                      ))}
-                    </div>
-                    <button
-                      onClick={() => setShowKpiSettings(false)}
-                      className="mt-4 w-full bg-blue-600 text-white py-2 rounded-lg text-sm hover:bg-blue-700"
-                    >
-                      閉じる
-                    </button>
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* KPI Grid（横並び） */}
-              {dataLoading ? (
-                <div className="bg-white rounded-xl shadow p-4 text-center text-gray-500">
-                  読み込み中...
-                </div>
-              ) : displayKpis.length > 0 ? (
-                <KpiGrid kpis={displayKpis} />
-              ) : (
-                <div className="bg-white rounded-xl shadow p-4 text-center text-gray-500">
-                  KPIデータなし
-                </div>
-              )}
-            </div>
+                {/* KPI Grid */}
+                {dataLoading ? (
+                  <div className="bg-gray-50 rounded-xl p-4 text-center text-gray-500">
+                    読み込み中...
+                  </div>
+                ) : displayKpis.length > 0 ? (
+                  <KpiGrid kpis={displayKpis} />
+                ) : (
+                  <div className="bg-gray-50 rounded-xl p-4 text-center text-gray-500">
+                    KPIデータなし
+                  </div>
+                )}
 
-            {/* 売上推移グラフ */}
-            <SalesChart
-              data={monthlySummary}
-              loading={dataLoading}
-              lastN={globalFilters.lastN}
-            />
+                {/* 売上推移グラフ */}
+                <SalesChart
+                  data={monthlySummary}
+                  loading={dataLoading}
+                  lastN={globalFilters.lastN}
+                />
 
-            {/* Charts */}
-            {sortedCharts.map((chart) => (
-              <ChartRenderer
-                key={chart.id}
-                config={chart}
-                globalFilters={globalFilters}
-                data={monthlyData}
-              />
-            ))}
+                {/* Charts */}
+                {sortedCharts.map((chart) => (
+                  <ChartRenderer
+                    key={chart.id}
+                    config={chart}
+                    globalFilters={globalFilters}
+                    data={monthlyData}
+                  />
+                ))}
+              </div>
+            </details>
           </div>
 
           {/* Right: PDCA Editor + History */}
@@ -498,6 +578,18 @@ export default function DashboardPage({ params }: PageProps) {
             <MeetingHistory
               cycles={cycles}
               loading={cyclesLoading}
+              onUpdateCycle={handleUpdateCycle}
+            />
+
+            {/* タスク管理 */}
+            <TaskManager
+              tasks={tasks}
+              entityName={entity?.name || ''}
+              clientId={clientId}
+              onStatusChange={handleTaskStatusChange}
+              onAddTask={handleAddTask}
+              onDeleteTask={handleDeleteTask}
+              loading={tasksLoading}
             />
           </div>
         </div>

@@ -3,7 +3,7 @@
 import { useState, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, LogOut, BarChart3, FileText } from 'lucide-react'
-import type { Client, Entity, SessionData, PdcaIssue } from '@/lib/types'
+import type { Client, Entity, SessionData, PdcaIssue, Task } from '@/lib/types'
 import { OverviewGrid } from '@/components/overview-grid'
 import { OverviewPdcaSummary } from '@/components/overview-pdca-summary'
 
@@ -14,7 +14,7 @@ type PageProps = {
   params: Promise<{ clientId: string }>
 }
 
-// イシューからサマリーを構築
+// サマリー用の型
 interface PdcaSummary {
   entityId: string
   entityName: string
@@ -25,9 +25,10 @@ interface PdcaSummary {
     latestDate: string
     latestTarget: string
   }[]
+  tasks: Task[]
 }
 
-function buildSummaries(entities: Entity[], issues: PdcaIssue[]): PdcaSummary[] {
+function buildSummaries(entities: Entity[], issues: PdcaIssue[], tasks: Task[]): PdcaSummary[] {
   return entities.map(entity => ({
     entityId: entity.id,
     entityName: entity.name,
@@ -38,8 +39,9 @@ function buildSummaries(entities: Entity[], issues: PdcaIssue[]): PdcaSummary[] 
         title: i.title,
         latestStatus: i.status,
         latestDate: i.updated_at,
-        latestTarget: '', // 将来的にはサイクルから取得
-      }))
+        latestTarget: '',
+      })),
+    tasks: tasks // 全タスクを渡す
   }))
 }
 
@@ -51,7 +53,8 @@ export default function OverviewPage({ params }: PageProps) {
   const [client, setClient] = useState<Client | null>(null)
   const [entities, setEntities] = useState<Entity[]>([])
   const [issues, setIssues] = useState<PdcaIssue[]>([])
-  const [activeTab, setActiveTab] = useState<'kpi' | 'pdca'>('kpi')
+  const [tasks, setTasks] = useState<Task[]>([])
+  const [activeTab, setActiveTab] = useState<'kpi' | 'pdca'>('pdca')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -86,6 +89,13 @@ export default function OverviewPage({ params }: PageProps) {
         if (issuesData.success) {
           setIssues(issuesData.data)
         }
+
+        // タスク取得
+        const tasksRes = await fetch(`/api/clients/${clientId}/tasks`)
+        const tasksData = await tasksRes.json()
+        if (tasksData.success) {
+          setTasks(tasksData.data)
+        }
       } catch (error) {
         console.error('Fetch error:', error)
       } finally {
@@ -96,8 +106,8 @@ export default function OverviewPage({ params }: PageProps) {
     fetchData()
   }, [router, clientId])
 
-  // イシューからサマリーを構築
-  const pdcaSummaries = buildSummaries(entities, issues)
+  // サマリーを構築
+  const pdcaSummaries = buildSummaries(entities, issues, tasks)
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' })
