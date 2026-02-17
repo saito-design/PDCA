@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, use } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, LogOut, PenTool, Store, RefreshCw, Settings2, X } from 'lucide-react'
+import { ChevronLeft, LogOut, PenTool, RefreshCw, Settings2, X, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import type { ChartConfig, GlobalFilters, SessionData, Client, Entity, PdcaCycle, Task, PdcaStatus } from '@/lib/types'
 import { KpiGrid } from '@/components/kpi-card'
 import { ChartRenderer } from '@/components/chart-renderer'
@@ -74,6 +74,9 @@ export default function DashboardPage({ params }: PageProps) {
   // KPI表示設定
   const [hiddenKpis, setHiddenKpis] = useState<string[]>([])
   const [showKpiSettings, setShowKpiSettings] = useState(false)
+
+  // データパネル開閉
+  const [showDataPanel, setShowDataPanel] = useState(false)
 
   // ローカルストレージからKPI設定を読み込み
   useEffect(() => {
@@ -470,34 +473,38 @@ export default function DashboardPage({ params }: PageProps) {
 
       {/* Main */}
       <main className="max-w-7xl mx-auto px-4 py-6">
-        <div className="grid grid-cols-12 gap-6">
-          {/* Left: KPI + Charts (折りたたみ) */}
-          <div className="col-span-5">
-            <details className="bg-white rounded-2xl shadow">
-              <summary className="p-4 cursor-pointer flex items-center justify-between list-none">
-                <div className="flex items-center gap-2">
+        <div className="flex gap-6">
+          {/* Left: KPI + Charts (横折りたたみ) */}
+          {showDataPanel && (
+            <div className="w-[400px] flex-shrink-0 space-y-4">
+              <div className="bg-white rounded-2xl shadow p-4">
+                <div className="flex items-center justify-between mb-4">
                   <h2 className="text-lg font-bold">データ表示</h2>
-                  <span className="text-xs text-gray-400">クリックで開閉</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowKpiSettings(true)}
+                      className="text-gray-400 hover:text-gray-600"
+                      title="表示項目を設定"
+                    >
+                      <Settings2 size={16} />
+                    </button>
+                    <button
+                      onClick={handleOpenChartStudio}
+                      className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
+                    >
+                      <PenTool size={14} />
+                      グラフ作成
+                    </button>
+                    <button
+                      onClick={() => setShowDataPanel(false)}
+                      className="text-gray-400 hover:text-gray-600 ml-2"
+                      title="パネルを閉じる"
+                    >
+                      <PanelLeftClose size={18} />
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={(e) => { e.preventDefault(); setShowKpiSettings(true) }}
-                    className="text-gray-400 hover:text-gray-600"
-                    title="表示項目を設定"
-                  >
-                    <Settings2 size={16} />
-                  </button>
-                  <button
-                    onClick={(e) => { e.preventDefault(); handleOpenChartStudio() }}
-                    className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700"
-                  >
-                    <PenTool size={14} />
-                    グラフ作成
-                  </button>
-                </div>
-              </summary>
 
-              <div className="p-4 pt-0 space-y-4">
                 {/* KPI設定モーダル */}
                 {showKpiSettings && (
                   <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -545,29 +552,68 @@ export default function DashboardPage({ params }: PageProps) {
                     KPIデータなし
                   </div>
                 )}
-
-                {/* 売上推移グラフ */}
-                <SalesChart
-                  data={monthlySummary}
-                  loading={dataLoading}
-                  lastN={globalFilters.lastN}
-                />
-
-                {/* Charts */}
-                {sortedCharts.map((chart) => (
-                  <ChartRenderer
-                    key={chart.id}
-                    config={chart}
-                    globalFilters={globalFilters}
-                    data={monthlyData}
-                  />
-                ))}
               </div>
-            </details>
-          </div>
 
-          {/* Right: PDCA Editor + History */}
-          <div className="col-span-7 space-y-4">
+              {/* 売上推移グラフ */}
+              <SalesChart
+                data={monthlySummary}
+                loading={dataLoading}
+                lastN={globalFilters.lastN}
+              />
+
+              {/* Charts */}
+              {sortedCharts.map((chart) => (
+                <ChartRenderer
+                  key={chart.id}
+                  config={chart}
+                  globalFilters={globalFilters}
+                  data={monthlyData}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Right: PDCA Editor + History (データパネル閉じたら全幅) */}
+          <div className="flex-1 space-y-4">
+            {/* データパネル開くボタン */}
+            {!showDataPanel && (
+              <button
+                onClick={() => setShowDataPanel(true)}
+                className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 mb-2"
+              >
+                <PanelLeftOpen size={18} />
+                データ表示を開く
+              </button>
+            )}
+
+            {/* 進行中タスク（最上部に表示） */}
+            {tasks.filter(t => t.entity_name === entity?.name && t.status === 'doing').length > 0 && (
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                <div className="flex items-center gap-2 text-blue-700 font-semibold mb-2">
+                  <span className="flex items-center justify-center w-5 h-5 bg-blue-600 text-white text-xs rounded-full">
+                    {tasks.filter(t => t.entity_name === entity?.name && t.status === 'doing').length}
+                  </span>
+                  進行中のタスク
+                </div>
+                <div className="space-y-1">
+                  {tasks
+                    .filter(t => t.entity_name === entity?.name && t.status === 'doing')
+                    .map(task => (
+                      <div key={task.id} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 text-sm">
+                        <span>{task.title}</span>
+                        <button
+                          onClick={() => handleTaskStatusChange(task.id, 'done')}
+                          className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200"
+                        >
+                          完了
+                        </button>
+                      </div>
+                    ))
+                  }
+                </div>
+              </div>
+            )}
+
             {/* ミーティングメモ（SAT形式） */}
             <PdcaEditor
               onSave={handleSavePdca}

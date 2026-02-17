@@ -109,9 +109,9 @@ function CycleCard({ cycle, defaultExpanded = false, onUpdate }: CycleCardProps)
   return (
     <div className="border rounded-xl overflow-hidden bg-white">
       {/* Header */}
-      <button
+      <div
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between p-3 hover:bg-gray-50 transition-colors"
+        className="w-full flex items-center justify-between p-3 hover:bg-gray-50 transition-colors cursor-pointer"
       >
         <div className="flex items-center gap-3">
           <div className="text-sm font-medium">{formatDate(cycle.cycle_date)}</div>
@@ -132,7 +132,7 @@ function CycleCard({ cycle, defaultExpanded = false, onUpdate }: CycleCardProps)
           )}
           {expanded ? <ChevronUp size={18} className="text-gray-400" /> : <ChevronDown size={18} className="text-gray-400" />}
         </div>
-      </button>
+      </div>
 
       {/* Content */}
       {expanded && (
