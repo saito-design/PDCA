@@ -7,8 +7,6 @@ import {
   PlayCircle,
   CheckCircle,
   PauseCircle,
-  Plus,
-  Trash2,
   ChevronRight
 } from 'lucide-react'
 import type { Task, PdcaStatus } from '@/lib/types'
@@ -53,24 +51,16 @@ const STATUS_CONFIG: Record<PdcaStatus, {
 interface TaskManagerProps {
   tasks: Task[]
   entityName: string
-  clientId: string
-  onStatusChange: (taskId: string, newStatus: PdcaStatus) => Promise<void>
-  onAddTask: (title: string) => Promise<void>
-  onDeleteTask: (taskId: string) => Promise<void>
+  onStatusChange: (taskId: string, newStatus: PdcaStatus) => void
   loading?: boolean
 }
 
 export function TaskManager({
   tasks,
   entityName,
-  clientId,
   onStatusChange,
-  onAddTask,
-  onDeleteTask,
   loading
 }: TaskManagerProps) {
-  const [newTaskTitle, setNewTaskTitle] = useState('')
-  const [adding, setAdding] = useState(false)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
 
   // この部署のタスクのみフィルタ
@@ -82,34 +72,10 @@ export function TaskManager({
   const doneTasks = entityTasks.filter(t => t.status === 'done')
   const pausedTasks = entityTasks.filter(t => t.status === 'paused')
 
-  const handleAddTask = async () => {
-    if (!newTaskTitle.trim()) return
-    setAdding(true)
-    try {
-      await onAddTask(newTaskTitle.trim())
-      setNewTaskTitle('')
-    } finally {
-      setAdding(false)
-    }
-  }
-
-  const handleStatusChange = async (taskId: string, newStatus: PdcaStatus) => {
+  const handleStatusChange = (taskId: string, newStatus: PdcaStatus) => {
     setUpdatingId(taskId)
-    try {
-      await onStatusChange(taskId, newStatus)
-    } finally {
-      setUpdatingId(null)
-    }
-  }
-
-  const handleDelete = async (taskId: string) => {
-    if (!confirm('このタスクを削除しますか？')) return
-    setUpdatingId(taskId)
-    try {
-      await onDeleteTask(taskId)
-    } finally {
-      setUpdatingId(null)
-    }
+    onStatusChange(taskId, newStatus)
+    setTimeout(() => setUpdatingId(null), 200)
   }
 
   const TaskItem = ({ task }: { task: Task }) => {
@@ -135,16 +101,6 @@ export function TaskManager({
         <div className={`flex-1 text-sm ${task.status === 'done' ? 'line-through text-gray-400' : ''}`}>
           {task.title}
         </div>
-
-        {/* 削除ボタン */}
-        <button
-          onClick={() => handleDelete(task.id)}
-          disabled={isUpdating}
-          className="text-gray-400 hover:text-red-500 p-1"
-          title="削除"
-        >
-          <Trash2 size={14} />
-        </button>
       </div>
     )
   }
@@ -154,7 +110,7 @@ export function TaskManager({
       <div className="bg-white rounded-2xl shadow p-4">
         <div className="flex items-center gap-2 mb-4">
           <ListTodo size={18} className="text-green-600" />
-          <h3 className="font-semibold">タスク管理</h3>
+          <h3 className="font-semibold">タスク一覧</h3>
         </div>
         <div className="text-center text-gray-500 py-8">読み込み中...</div>
       </div>
@@ -163,23 +119,25 @@ export function TaskManager({
 
   return (
     <div className="bg-white rounded-2xl shadow p-4">
-      {/* Header */}
+      {/* Header（進行中は上部表示のため除外） */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <ListTodo size={18} className="text-green-600" />
-          <h3 className="font-semibold">タスク管理</h3>
-          <span className="text-xs text-gray-400">({entityTasks.length}件)</span>
+          <h3 className="font-semibold">タスク一覧</h3>
+          <span className="text-xs text-gray-400">
+            ({openTasks.length + pausedTasks.length + doneTasks.length}件)
+          </span>
         </div>
 
-        {/* ステータスサマリー */}
+        {/* ステータスサマリー（進行中除く） */}
         <div className="flex items-center gap-2 text-xs">
           <span className="flex items-center gap-1 text-gray-500">
             <Circle size={12} />
             {openTasks.length}
           </span>
-          <span className="flex items-center gap-1 text-blue-600">
-            <PlayCircle size={12} />
-            {doingTasks.length}
+          <span className="flex items-center gap-1 text-yellow-600">
+            <PauseCircle size={12} />
+            {pausedTasks.length}
           </span>
           <span className="flex items-center gap-1 text-green-600">
             <CheckCircle size={12} />
@@ -188,21 +146,8 @@ export function TaskManager({
         </div>
       </div>
 
-      {/* タスク一覧 */}
+      {/* タスク一覧（進行中は上部で表示するため除外） */}
       <div className="space-y-4">
-        {/* 進行中 */}
-        {doingTasks.length > 0 && (
-          <div>
-            <div className="text-xs font-semibold text-blue-600 mb-2 flex items-center gap-1">
-              <PlayCircle size={12} />
-              進行中 ({doingTasks.length})
-            </div>
-            <div className="space-y-1">
-              {doingTasks.map(task => <TaskItem key={task.id} task={task} />)}
-            </div>
-          </div>
-        )}
-
         {/* 未着手 */}
         {openTasks.length > 0 && (
           <div>
@@ -243,33 +188,13 @@ export function TaskManager({
           </details>
         )}
 
-        {/* 空の状態 */}
-        {entityTasks.length === 0 && (
+        {/* 空の状態（進行中除く） */}
+        {openTasks.length === 0 && pausedTasks.length === 0 && doneTasks.length === 0 && (
           <div className="text-center text-gray-400 py-8 text-sm">
-            タスクがありません
+            タスクがありません<br />
+            <span className="text-xs">ミーティングのアクションに【】で記載するとタスクが作成されます</span>
           </div>
         )}
-      </div>
-
-      {/* 新規タスク追加（一番下） */}
-      <div className="flex gap-2 mt-4 pt-4 border-t">
-        <input
-          type="text"
-          value={newTaskTitle}
-          onChange={(e) => setNewTaskTitle(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleAddTask()}
-          placeholder="新しいタスクを追加..."
-          className="flex-1 border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-green-500 focus:border-transparent"
-          disabled={adding}
-        />
-        <button
-          onClick={handleAddTask}
-          disabled={adding || !newTaskTitle.trim()}
-          className="flex items-center gap-1 bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50"
-        >
-          <Plus size={16} />
-          追加
-        </button>
       </div>
     </div>
   )

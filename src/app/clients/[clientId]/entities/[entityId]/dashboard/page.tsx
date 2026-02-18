@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect, useMemo, use } from 'react'
+import { useState, useEffect, useMemo, use, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, LogOut, PenTool, RefreshCw, Settings2, X, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { ChevronLeft, LogOut, PenTool, RefreshCw, Settings2, X, PanelLeftClose, PanelLeftOpen, Save } from 'lucide-react'
 import type { ChartConfig, GlobalFilters, SessionData, Client, Entity, PdcaCycle, Task, PdcaStatus } from '@/lib/types'
 import { KpiGrid } from '@/components/kpi-card'
 import { ChartRenderer } from '@/components/chart-renderer'
@@ -59,6 +59,8 @@ export default function DashboardPage({ params }: PageProps) {
   const [cyclesLoading, setCyclesLoading] = useState(false)
   const [tasks, setTasks] = useState<Task[]>([])
   const [tasksLoading, setTasksLoading] = useState(false)
+  const [pendingTaskChanges, setPendingTaskChanges] = useState<Map<string, PdcaStatus>>(new Map())
+  const [savingTasks, setSavingTasks] = useState(false)
   const [globalFilters, setGlobalFilters] = useState<GlobalFilters>({ store: '全店', lastN: 6 })
   const [loading, setLoading] = useState(true)
 
@@ -281,6 +283,8 @@ export default function DashboardPage({ params }: PageProps) {
         if (cyclesData.success) {
           setCycles(cyclesData.data)
         }
+        // 【】からタスクを抽出して追加
+        await createTasksFromAction(data.action)
         alert('保存しました')
       } else {
         alert('保存に失敗しました: ' + result.error)
@@ -312,6 +316,8 @@ export default function DashboardPage({ params }: PageProps) {
       const result = await res.json()
       if (result.success) {
         setCycles(prev => prev.map(c => c.id === cycle.id ? result.data : c))
+        // 【】からタスクを抽出して追加（編集時も新しい【】を検出）
+        await createTasksFromAction(cycle.action)
       } else {
         alert('更新に失敗しました: ' + result.error)
       }
@@ -325,65 +331,95 @@ export default function DashboardPage({ params }: PageProps) {
     setGlobalFilters((prev) => ({ ...prev, store }))
   }
 
-  // タスクステータス変更
-  const handleTaskStatusChange = async (taskId: string, newStatus: PdcaStatus) => {
+  // タスクステータス変更（ローカルのみ、保存ボタンで反映）
+  const handleTaskStatusChange = useCallback((taskId: string, newStatus: PdcaStatus) => {
+    setPendingTaskChanges(prev => {
+      const next = new Map(prev)
+      next.set(taskId, newStatus)
+      return next
+    })
+    // UIに即座に反映（ただしまだ保存されていない）
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t))
+  }, [])
+
+  // タスク変更を保存
+  const handleSaveTaskChanges = async () => {
+    if (pendingTaskChanges.size === 0) return
+
+    setSavingTasks(true)
     try {
-      const res = await fetch(`/api/clients/${clientId}/tasks/${taskId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus }),
-      })
-      const result = await res.json()
-      if (result.success) {
-        setTasks(prev => prev.map(t => t.id === taskId ? result.data : t))
+      const promises = Array.from(pendingTaskChanges.entries()).map(([taskId, newStatus]) =>
+        fetch(`/api/clients/${clientId}/tasks/${taskId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: newStatus }),
+        }).then(res => res.json())
+      )
+
+      const results = await Promise.all(promises)
+      const allSuccess = results.every(r => r.success)
+
+      if (allSuccess) {
+        setPendingTaskChanges(new Map())
+        // タスク一覧を再取得
+        const tasksRes = await fetch(`/api/clients/${clientId}/tasks`)
+        const tasksData = await tasksRes.json()
+        if (tasksData.success) {
+          setTasks(tasksData.data)
+        }
       } else {
-        alert('ステータス更新に失敗: ' + result.error)
+        alert('一部のタスク更新に失敗しました')
       }
     } catch (error) {
-      console.error('Task status change error:', error)
-      alert('ステータス更新に失敗しました')
+      console.error('Save task changes error:', error)
+      alert('タスク保存に失敗しました')
+    } finally {
+      setSavingTasks(false)
     }
   }
 
-  // タスク追加
-  const handleAddTask = async (title: string) => {
-    try {
-      const res = await fetch(`/api/clients/${clientId}/tasks`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title,
-          entity_name: entity?.name || '',
-          status: 'open',
-        }),
-      })
-      const result = await res.json()
-      if (result.success) {
-        setTasks(prev => [result.data, ...prev])
-      } else {
-        alert('タスク追加に失敗: ' + result.error)
-      }
-    } catch (error) {
-      console.error('Add task error:', error)
-      alert('タスク追加に失敗しました')
+  // 【】からタスクを抽出する関数
+  const extractTasksFromAction = (action: string): string[] => {
+    const regex = /【([^】]+)】/g
+    const tasks: string[] = []
+    let match
+    while ((match = regex.exec(action)) !== null) {
+      tasks.push(match[1])
     }
+    return tasks
   }
 
-  // タスク削除
-  const handleDeleteTask = async (taskId: string) => {
-    try {
-      const res = await fetch(`/api/clients/${clientId}/tasks/${taskId}`, {
-        method: 'DELETE',
-      })
-      const result = await res.json()
-      if (result.success) {
-        setTasks(prev => prev.filter(t => t.id !== taskId))
-      } else {
-        alert('タスク削除に失敗: ' + result.error)
+  // 新しいタスクを作成（【】抽出時に使用）
+  const createTasksFromAction = async (action: string) => {
+    const taskTitles = extractTasksFromAction(action)
+    if (taskTitles.length === 0) return
+
+    // 既存タスクのタイトルを取得
+    const existingTitles = tasks
+      .filter(t => t.entity_name === entity?.name)
+      .map(t => t.title)
+
+    // 新しいタスクのみ追加
+    const newTaskTitles = taskTitles.filter(title => !existingTitles.includes(title))
+
+    for (const title of newTaskTitles) {
+      try {
+        const res = await fetch(`/api/clients/${clientId}/tasks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title,
+            entity_name: entity?.name || '',
+            status: 'open',
+          }),
+        })
+        const result = await res.json()
+        if (result.success) {
+          setTasks(prev => [result.data, ...prev])
+        }
+      } catch (error) {
+        console.error('Create task error:', error)
       }
-    } catch (error) {
-      console.error('Delete task error:', error)
-      alert('タスク削除に失敗しました')
     }
   }
 
@@ -586,31 +622,49 @@ export default function DashboardPage({ params }: PageProps) {
               </button>
             )}
 
-            {/* 進行中タスク（最上部に表示） */}
-            {tasks.filter(t => t.entity_name === entity?.name && t.status === 'doing').length > 0 && (
+            {/* 進行中タスク（最上部に表示）またはペンディング変更がある場合 */}
+            {(tasks.filter(t => t.entity_name === entity?.name && t.status === 'doing').length > 0 || pendingTaskChanges.size > 0) && (
               <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-                <div className="flex items-center gap-2 text-blue-700 font-semibold mb-2">
-                  <span className="flex items-center justify-center w-5 h-5 bg-blue-600 text-white text-xs rounded-full">
-                    {tasks.filter(t => t.entity_name === entity?.name && t.status === 'doing').length}
-                  </span>
-                  進行中のタスク
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2 text-blue-700 font-semibold">
+                    <span className="flex items-center justify-center w-5 h-5 bg-blue-600 text-white text-xs rounded-full">
+                      {tasks.filter(t => t.entity_name === entity?.name && t.status === 'doing').length}
+                    </span>
+                    進行中のタスク
+                  </div>
+                  {pendingTaskChanges.size > 0 && (
+                    <button
+                      onClick={handleSaveTaskChanges}
+                      disabled={savingTasks}
+                      className="flex items-center gap-1 bg-blue-600 text-white px-3 py-1.5 rounded-lg text-sm hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      <Save size={14} />
+                      {savingTasks ? '保存中...' : `保存 (${pendingTaskChanges.size}件の変更)`}
+                    </button>
+                  )}
                 </div>
-                <div className="space-y-1">
-                  {tasks
-                    .filter(t => t.entity_name === entity?.name && t.status === 'doing')
-                    .map(task => (
-                      <div key={task.id} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 text-sm">
-                        <span>{task.title}</span>
-                        <button
-                          onClick={() => handleTaskStatusChange(task.id, 'done')}
-                          className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200"
-                        >
-                          完了
-                        </button>
-                      </div>
-                    ))
-                  }
-                </div>
+                {tasks.filter(t => t.entity_name === entity?.name && t.status === 'doing').length > 0 ? (
+                  <div className="space-y-1">
+                    {tasks
+                      .filter(t => t.entity_name === entity?.name && t.status === 'doing')
+                      .map(task => (
+                        <div key={task.id} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 text-sm">
+                          <span>{task.title}</span>
+                          <button
+                            onClick={() => handleTaskStatusChange(task.id, 'done')}
+                            className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200"
+                          >
+                            完了
+                          </button>
+                        </div>
+                      ))
+                    }
+                  </div>
+                ) : (
+                  <div className="text-sm text-blue-600">
+                    進行中のタスクはありません
+                  </div>
+                )}
               </div>
             )}
 
@@ -627,14 +681,11 @@ export default function DashboardPage({ params }: PageProps) {
               onUpdateCycle={handleUpdateCycle}
             />
 
-            {/* タスク管理 */}
+            {/* タスク管理（下部に全ステータス表示） */}
             <TaskManager
               tasks={tasks}
               entityName={entity?.name || ''}
-              clientId={clientId}
               onStatusChange={handleTaskStatusChange}
-              onAddTask={handleAddTask}
-              onDeleteTask={handleDeleteTask}
               loading={tasksLoading}
             />
           </div>
