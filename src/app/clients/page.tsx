@@ -2,14 +2,16 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Building2, LogOut, RefreshCw, FileSpreadsheet, FolderOpen, Plus, Copy, Check, Trash2, AlertTriangle } from 'lucide-react'
+import { Building2, LogOut, RefreshCw, FileSpreadsheet, FolderOpen, Plus, Copy, Check, Trash2, AlertTriangle, Cloud } from 'lucide-react'
 import type { Client, SessionData } from '@/lib/types'
 
 interface ClientDataInfo {
   hasDataSource: boolean
+  dataSourceType: 'excel' | 'drive' | null
   fileName: string | null
   filePath: string | null
   folderPath: string | null
+  driveFolderId: string | null
   cacheUpdatedAt: string | null
   hasCache: boolean
 }
@@ -293,31 +295,42 @@ export default function ClientsPage() {
                 <div className="border-t pt-3 space-y-2">
                   {/* ファイル名 */}
                   <div className="flex items-center gap-2 text-sm">
-                    <FileSpreadsheet size={14} className="text-green-600" />
+                    {client.dataInfo.dataSourceType === 'drive' ? (
+                      <Cloud size={14} className="text-blue-600" />
+                    ) : (
+                      <FileSpreadsheet size={14} className="text-green-600" />
+                    )}
                     <span className="text-gray-600 truncate flex-1">
                       {client.dataInfo.fileName}
                     </span>
+                    {client.dataInfo.dataSourceType === 'drive' && (
+                      <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">
+                        Drive
+                      </span>
+                    )}
                   </div>
 
-                  {/* 更新日時と更新ボタン */}
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-gray-500">
-                      更新: {formatDate(client.dataInfo.cacheUpdatedAt)}
-                    </span>
-                    <button
-                      onClick={(e) => handleRefresh(client.id, e)}
-                      disabled={refreshingId === client.id}
-                      className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
-                    >
-                      <RefreshCw
-                        size={12}
-                        className={refreshingId === client.id ? 'animate-spin' : ''}
-                      />
-                      {refreshingId === client.id ? '更新中...' : 'データ更新'}
-                    </button>
-                  </div>
+                  {/* 更新日時と更新ボタン（Excelの場合のみ） */}
+                  {client.dataInfo.dataSourceType === 'excel' && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-gray-500">
+                        更新: {formatDate(client.dataInfo.cacheUpdatedAt)}
+                      </span>
+                      <button
+                        onClick={(e) => handleRefresh(client.id, e)}
+                        disabled={refreshingId === client.id}
+                        className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                      >
+                        <RefreshCw
+                          size={12}
+                          className={refreshingId === client.id ? 'animate-spin' : ''}
+                        />
+                        {refreshingId === client.id ? '更新中...' : 'データ更新'}
+                      </button>
+                    </div>
+                  )}
 
-                  {/* フォルダパス */}
+                  {/* フォルダパス（Excelの場合） */}
                   {client.dataInfo.folderPath && (
                     <div className="flex items-center gap-2">
                       <FolderOpen size={14} className="text-amber-600" />

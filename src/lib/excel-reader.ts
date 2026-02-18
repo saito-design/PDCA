@@ -10,6 +10,7 @@ interface DataSource {
   path: string
   folder: string
   sheets: { posSales: string; posItems: string }
+  type: 'excel' | 'drive'
 }
 
 const DATA_SOURCES: Record<string, DataSource> = {
@@ -20,40 +21,69 @@ const DATA_SOURCES: Record<string, DataSource> = {
       posSales: 'POS売上',
       posItems: 'POS単品',
     },
+    type: 'excel',
   },
+}
+
+// Google Driveベースのデータソース（unified_data.json）を持つクライアント
+// これはclients.jsonから動的に判定される
+export interface DriveDataSource {
+  type: 'drive'
+  folderId: string
+  fileName: string
 }
 
 // データソース情報を取得
 export interface ClientDataInfo {
   hasDataSource: boolean
+  dataSourceType: 'excel' | 'drive' | null
   fileName: string | null
   filePath: string | null
   folderPath: string | null
+  driveFolderId: string | null
   cacheUpdatedAt: string | null
   hasCache: boolean
 }
 
-export function getClientDataInfo(clientId: string): ClientDataInfo {
+export function getClientDataInfo(clientId: string, driveFolderId?: string): ClientDataInfo {
   const source = DATA_SOURCES[clientId]
-  if (!source) {
+
+  // Excelデータソースがある場合
+  if (source) {
+    const fileName = source.path.split('/').pop() || null
     return {
-      hasDataSource: false,
-      fileName: null,
-      filePath: null,
-      folderPath: null,
+      hasDataSource: true,
+      dataSourceType: 'excel',
+      fileName,
+      filePath: source.path,
+      folderPath: source.folder,
+      driveFolderId: null,
       cacheUpdatedAt: getCacheUpdatedAt(clientId),
       hasCache: hasCacheData(clientId),
     }
   }
 
-  // ファイル名を抽出
-  const fileName = source.path.split('/').pop() || null
+  // Google Driveフォルダがある場合（unified_data.jsonがデータソース）
+  if (driveFolderId) {
+    return {
+      hasDataSource: true,
+      dataSourceType: 'drive',
+      fileName: 'unified_data.json',
+      filePath: null,
+      folderPath: null,
+      driveFolderId,
+      cacheUpdatedAt: getCacheUpdatedAt(clientId),
+      hasCache: hasCacheData(clientId),
+    }
+  }
 
   return {
-    hasDataSource: true,
-    fileName,
-    filePath: source.path,
-    folderPath: source.folder,
+    hasDataSource: false,
+    dataSourceType: null,
+    fileName: null,
+    filePath: null,
+    folderPath: null,
+    driveFolderId: null,
     cacheUpdatedAt: getCacheUpdatedAt(clientId),
     hasCache: hasCacheData(clientId),
   }
@@ -68,6 +98,7 @@ export function setDataSource(clientId: string, filePath: string, folderPath: st
       posSales: 'POS売上',
       posItems: 'POS単品',
     },
+    type: 'excel',
   }
 }
 
