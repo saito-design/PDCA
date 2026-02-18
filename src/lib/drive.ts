@@ -121,6 +121,17 @@ export async function findFileByName(
 }
 
 /**
+ * Finds a folder by name in a parent folder. Returns folder ID or null.
+ */
+export async function findFolderByName(
+  folderName: string,
+  parentId: string
+): Promise<string | null> {
+  const folder = await findFileByName(folderName, parentId, 'application/vnd.google-apps.folder')
+  return folder?.id || null
+}
+
+/**
  * Uploads (creates or updates) a file.
  */
 export async function saveFile(
