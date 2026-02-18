@@ -173,7 +173,7 @@ export default function EntitiesPage({ params }: PageProps) {
     setDeletingEntity(entity)
   }
 
-  const handleMoveEntity = (index: number, direction: 'up' | 'down', e: React.MouseEvent) => {
+  const handleMoveEntity = async (index: number, direction: 'up' | 'down', e: React.MouseEvent) => {
     e.stopPropagation()
     const newIndex = direction === 'up' ? index - 1 : index + 1
     if (newIndex < 0 || newIndex >= entities.length) return
@@ -184,7 +184,16 @@ export default function EntitiesPage({ params }: PageProps) {
     newEntities[newIndex] = temp
     setEntities(newEntities)
 
-    // TODO: サーバーに順序を保存する場合はここでAPI呼び出し
+    // サーバーに順序を保存
+    try {
+      await fetch(`/api/clients/${clientId}/entities`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderedIds: newEntities.map(e => e.id) }),
+      })
+    } catch {
+      console.error('Failed to save order')
+    }
   }
 
   if (loading) {

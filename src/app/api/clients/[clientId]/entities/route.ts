@@ -104,6 +104,71 @@ export async function GET(
   }
 }
 
+// 部署/店舗の並び替え
+export async function PATCH(
+  request: NextRequest,
+  context: RouteParams
+): Promise<NextResponse<ApiResponse<Entity[]>>> {
+  try {
+    await requireAuth()
+    const { clientId } = await context.params
+    const body = await request.json()
+    const { orderedIds } = body
+
+    if (!Array.isArray(orderedIds)) {
+      return NextResponse.json(
+        { success: false, error: '並び順が無効です' },
+        { status: 400 }
+      )
+    }
+
+    if (!isDriveConfigured()) {
+      return NextResponse.json(
+        { success: false, error: 'Google Driveが設定されていません' },
+        { status: 500 }
+      )
+    }
+
+    const clientFolderId = await getClientFolderId(clientId)
+    if (!clientFolderId) {
+      return NextResponse.json(
+        { success: false, error: '企業が見つかりません' },
+        { status: 404 }
+      )
+    }
+
+    const entities = await loadEntities(clientFolderId)
+
+    // 指定された順序で並び替え
+    const orderedEntities = orderedIds
+      .map(id => entities.find(e => e.id === id))
+      .filter((e): e is Entity => e !== undefined)
+
+    // 指定されていないエンティティは末尾に追加
+    const remainingEntities = entities.filter(e => !orderedIds.includes(e.id))
+    const newEntities = [...orderedEntities, ...remainingEntities]
+
+    await saveEntities(newEntities, clientFolderId)
+
+    return NextResponse.json({
+      success: true,
+      data: newEntities,
+    })
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Unauthorized') {
+      return NextResponse.json(
+        { success: false, error: '認証が必要です' },
+        { status: 401 }
+      )
+    }
+    console.error('Reorder entities error:', error)
+    return NextResponse.json(
+      { success: false, error: '並び替えに失敗しました' },
+      { status: 500 }
+    )
+  }
+}
+
 // 部署/店舗追加
 export async function POST(
   request: NextRequest,

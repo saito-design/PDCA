@@ -56,6 +56,60 @@ export async function GET(): Promise<NextResponse<ApiResponse<Client[]>>> {
   }
 }
 
+// 企業の並び替え
+export async function PATCH(request: NextRequest): Promise<NextResponse<ApiResponse<Client[]>>> {
+  try {
+    await requireAuth()
+
+    const body = await request.json()
+    const { orderedIds } = body
+
+    if (!Array.isArray(orderedIds)) {
+      return NextResponse.json(
+        { success: false, error: '並び順が無効です' },
+        { status: 400 }
+      )
+    }
+
+    if (!isDriveConfigured()) {
+      return NextResponse.json(
+        { success: false, error: 'Google Driveが設定されていません' },
+        { status: 500 }
+      )
+    }
+
+    const clients = await loadClients()
+
+    // 指定された順序で並び替え
+    const orderedClients = orderedIds
+      .map(id => clients.find(c => c.id === id))
+      .filter((c): c is Client => c !== undefined)
+
+    // 指定されていないクライアントは末尾に追加
+    const remainingClients = clients.filter(c => !orderedIds.includes(c.id))
+    const newClients = [...orderedClients, ...remainingClients]
+
+    await saveClients(newClients)
+
+    return NextResponse.json({
+      success: true,
+      data: newClients,
+    })
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Unauthorized') {
+      return NextResponse.json(
+        { success: false, error: '認証が必要です' },
+        { status: 401 }
+      )
+    }
+    console.error('Reorder clients error:', error)
+    return NextResponse.json(
+      { success: false, error: '並び替えに失敗しました' },
+      { status: 500 }
+    )
+  }
+}
+
 // 企業IDを自動生成
 function generateClientId(): string {
   const timestamp = Date.now().toString(36)

@@ -252,7 +252,16 @@ export default function ClientsPage() {
     newClients[newIndex] = temp
     setClients(newClients)
 
-    // TODO: サーバーに順序を保存する場合はここでAPI呼び出し
+    // サーバーに順序を保存
+    try {
+      await fetch('/api/clients', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderedIds: newClients.map(c => c.id) }),
+      })
+    } catch {
+      console.error('Failed to save order')
+    }
   }
 
   const formatDate = (isoString: string | null) => {
