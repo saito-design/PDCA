@@ -58,17 +58,18 @@ export default function CompanyReportPreviewPage({ params }: PageProps) {
           setTasks(tasksData.data)
         }
 
-        // 各部署の最新サイクルを取得
+        // 各部署の最新サイクルを取得（entity_idでフィルタ）
         if (entitiesData.success && entitiesData.data.length > 0) {
           const cyclesMap: Record<string, PdcaCycle | null> = {}
           for (const entity of entitiesData.data) {
             try {
+              // entity_idでサイクルを取得する新しいAPI
               const cyclesRes = await fetch(
-                `/api/clients/${clientId}/entities/${entity.id}/pdca/tasks/task-1/cycles`
+                `/api/clients/${clientId}/entities/${entity.id}/cycles`
               )
               const cyclesData = await cyclesRes.json()
               if (cyclesData.success && cyclesData.data.length > 0) {
-                // 最新のサイクルを取得
+                // 最新のサイクルを取得（APIで既にソート済みだが念のため）
                 const sorted = [...cyclesData.data].sort(
                   (a: PdcaCycle, b: PdcaCycle) =>
                     new Date(b.cycle_date).getTime() - new Date(a.cycle_date).getTime()

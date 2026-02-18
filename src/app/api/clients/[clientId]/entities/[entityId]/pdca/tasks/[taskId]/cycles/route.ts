@@ -114,10 +114,10 @@ export async function POST(
 ): Promise<NextResponse<ApiResponse<PdcaCycle>>> {
   try {
     await requireAuth()
-    const { clientId, taskId } = await context.params
+    const { clientId, entityId, taskId } = await context.params
     const body = await request.json()
 
-    if (!clientId || !taskId) {
+    if (!clientId || !entityId || !taskId) {
       return NextResponse.json(
         { success: false, error: '無効なパラメータです' },
         { status: 400 }
@@ -152,6 +152,7 @@ export async function POST(
     const newCycle: PdcaCycle = {
       id: `cycle-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       client_id: clientId,
+      entity_id: entityId,  // 部署IDを追加
       issue_id: taskId,
       cycle_date,
       situation: situation || '',

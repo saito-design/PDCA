@@ -91,6 +91,7 @@ export type PdcaTask = PdcaIssue
 export interface PdcaCycle {
   id: string
   client_id: string
+  entity_id?: string  // 部署ID（レポート出力時に使用）
   issue_id: string
   cycle_date: string
   situation: string
