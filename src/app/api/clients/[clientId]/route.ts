@@ -105,6 +105,70 @@ export async function GET(
   }
 }
 
+// 企業名変更
+export async function PATCH(
+  request: NextRequest,
+  context: RouteParams
+): Promise<NextResponse<ApiResponse<Client>>> {
+  try {
+    await requireAuth()
+    const { clientId } = await context.params
+    const body = await request.json()
+    const { name } = body
+
+    if (!clientId) {
+      return NextResponse.json(
+        { success: false, error: '無効なクライアントIDです' },
+        { status: 400 }
+      )
+    }
+
+    if (!name || typeof name !== 'string' || name.length > 100) {
+      return NextResponse.json(
+        { success: false, error: '企業名が無効です' },
+        { status: 400 }
+      )
+    }
+
+    if (!isDriveConfigured()) {
+      return NextResponse.json(
+        { success: false, error: 'Google Driveが設定されていません' },
+        { status: 500 }
+      )
+    }
+
+    const clients = await loadClients()
+    const clientIndex = clients.findIndex(c => c.id === clientId)
+
+    if (clientIndex === -1) {
+      return NextResponse.json(
+        { success: false, error: '企業が見つかりません' },
+        { status: 404 }
+      )
+    }
+
+    clients[clientIndex].name = name
+    await saveClients(clients)
+
+    return NextResponse.json({
+      success: true,
+      data: clients[clientIndex],
+    })
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Unauthorized') {
+      return NextResponse.json(
+        { success: false, error: '認証が必要です' },
+        { status: 401 }
+      )
+    }
+    console.error('Update client error:', error)
+    return NextResponse.json(
+      { success: false, error: '企業名の更新に失敗しました' },
+      { status: 500 }
+    )
+  }
+}
+
 // 企業削除
 export async function DELETE(
   _request: NextRequest,

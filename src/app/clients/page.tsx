@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Building2, LogOut, RefreshCw, FileSpreadsheet, FolderOpen, Plus, Copy, Check, Trash2, AlertTriangle, Cloud } from 'lucide-react'
+import { Building2, LogOut, RefreshCw, FileSpreadsheet, FolderOpen, Plus, Copy, Check, Trash2, AlertTriangle, Cloud, Pencil, ChevronUp, ChevronDown } from 'lucide-react'
 import type { Client, SessionData } from '@/lib/types'
 
 interface ClientDataInfo {
@@ -37,6 +37,9 @@ export default function ClientsPage() {
   } | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [loadingStats, setLoadingStats] = useState(false)
+  const [editingClient, setEditingClient] = useState<Client | null>(null)
+  const [editName, setEditName] = useState('')
+  const [updating, setUpdating] = useState(false)
 
   useEffect(() => {
     fetchData()
@@ -205,6 +208,53 @@ export default function ClientsPage() {
     return ['junestory', 'tottori-kyosai'].includes(clientId)
   }
 
+  const handleEditClick = (client: Client, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setEditingClient(client)
+    setEditName(client.name)
+  }
+
+  const handleEditConfirm = async () => {
+    if (!editingClient || !editName.trim()) {
+      alert('企業名を入力してください')
+      return
+    }
+    setUpdating(true)
+    try {
+      const res = await fetch(`/api/clients/${editingClient.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: editName }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setEditingClient(null)
+        setEditName('')
+        fetchData()
+      } else {
+        alert(data.error || '更新に失敗しました')
+      }
+    } catch {
+      alert('更新に失敗しました')
+    } finally {
+      setUpdating(false)
+    }
+  }
+
+  const handleMoveClient = async (index: number, direction: 'up' | 'down', e: React.MouseEvent) => {
+    e.stopPropagation()
+    const newIndex = direction === 'up' ? index - 1 : index + 1
+    if (newIndex < 0 || newIndex >= clients.length) return
+
+    const newClients = [...clients]
+    const temp = newClients[index]
+    newClients[index] = newClients[newIndex]
+    newClients[newIndex] = temp
+    setClients(newClients)
+
+    // TODO: サーバーに順序を保存する場合はここでAPI呼び出し
+  }
+
   const formatDate = (isoString: string | null) => {
     if (!isoString) return '未取得'
     const date = new Date(isoString)
@@ -263,7 +313,7 @@ export default function ClientsPage() {
         )}
 
         <div className="grid gap-4 sm:grid-cols-2">
-          {clients.map((client) => (
+          {clients.map((client, index) => (
             <div
               key={client.id}
               onClick={() => handleSelectClient(client.id)}
@@ -278,16 +328,42 @@ export default function ClientsPage() {
                   <div className="font-semibold text-lg">{client.name}</div>
                   <div className="text-xs text-gray-400">ID: {client.id}</div>
                 </div>
-                {!isMasterClient(client.id) && (
+                {/* 操作ボタン（縦並び） */}
+                <div className="flex flex-col gap-1">
                   <button
-                    onClick={(e) => handleDeleteClick(client, e)}
-                    disabled={loadingStats}
-                    className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
-                    title="削除"
+                    onClick={(e) => handleMoveClient(index, 'up', e)}
+                    disabled={index === 0}
+                    className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded disabled:opacity-30"
+                    title="上に移動"
                   >
-                    <Trash2 size={16} />
+                    <ChevronUp size={14} />
                   </button>
-                )}
+                  <button
+                    onClick={(e) => handleMoveClient(index, 'down', e)}
+                    disabled={index === clients.length - 1}
+                    className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded disabled:opacity-30"
+                    title="下に移動"
+                  >
+                    <ChevronDown size={14} />
+                  </button>
+                  <button
+                    onClick={(e) => handleEditClick(client, e)}
+                    className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
+                    title="名前を変更"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  {!isMasterClient(client.id) && (
+                    <button
+                      onClick={(e) => handleDeleteClick(client, e)}
+                      disabled={loadingStats}
+                      className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded"
+                      title="削除"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* データソース情報 */}
@@ -452,6 +528,41 @@ export default function ClientsPage() {
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
               >
                 {adding ? '追加中...' : '追加'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 編集モーダル */}
+      {editingClient && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md mx-4">
+            <h3 className="text-lg font-semibold mb-4">企業名を変更</h3>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                新しい企業名
+              </label>
+              <input
+                type="text"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                className="w-full border rounded-lg px-3 py-2"
+              />
+            </div>
+            <div className="flex justify-end gap-2 mt-6">
+              <button
+                onClick={() => setEditingClient(null)}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handleEditConfirm}
+                disabled={updating}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                {updating ? '更新中...' : '更新'}
               </button>
             </div>
           </div>

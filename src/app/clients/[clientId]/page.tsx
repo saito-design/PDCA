@@ -2,7 +2,7 @@
 
 import { useState, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
-import { Store, ChevronLeft, LogOut, LayoutDashboard, Eye, Plus, FileText, Pencil, Trash2 } from 'lucide-react'
+import { Store, ChevronLeft, LogOut, LayoutDashboard, Eye, Plus, FileText, Pencil, Trash2, ChevronUp, ChevronDown } from 'lucide-react'
 import type { Entity, Client, SessionData } from '@/lib/types'
 
 type PageProps = {
@@ -173,6 +173,20 @@ export default function EntitiesPage({ params }: PageProps) {
     setDeletingEntity(entity)
   }
 
+  const handleMoveEntity = (index: number, direction: 'up' | 'down', e: React.MouseEvent) => {
+    e.stopPropagation()
+    const newIndex = direction === 'up' ? index - 1 : index + 1
+    if (newIndex < 0 || newIndex >= entities.length) return
+
+    const newEntities = [...entities]
+    const temp = newEntities[index]
+    newEntities[index] = newEntities[newIndex]
+    newEntities[newIndex] = temp
+    setEntities(newEntities)
+
+    // TODO: サーバーに順序を保存する場合はここでAPI呼び出し
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -245,7 +259,7 @@ export default function EntitiesPage({ params }: PageProps) {
         )}
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {entities.map((entity) => (
+          {entities.map((entity, index) => (
             <div
               key={entity.id}
               className="bg-white rounded-xl shadow p-6 hover:shadow-md transition-shadow"
@@ -266,20 +280,37 @@ export default function EntitiesPage({ params }: PageProps) {
                     </div>
                   </div>
                 </button>
-                <div className="flex items-center gap-1">
+                {/* 操作ボタン（縦並び） */}
+                <div className="flex flex-col gap-0.5">
+                  <button
+                    onClick={(e) => handleMoveEntity(index, 'up', e)}
+                    disabled={index === 0}
+                    className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded disabled:opacity-30"
+                    title="上に移動"
+                  >
+                    <ChevronUp size={14} />
+                  </button>
+                  <button
+                    onClick={(e) => handleMoveEntity(index, 'down', e)}
+                    disabled={index === entities.length - 1}
+                    className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded disabled:opacity-30"
+                    title="下に移動"
+                  >
+                    <ChevronDown size={14} />
+                  </button>
                   <button
                     onClick={(e) => openEditModal(entity, e)}
-                    className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"
+                    className="p-1 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"
                     title="名前を変更"
                   >
-                    <Pencil size={16} />
+                    <Pencil size={14} />
                   </button>
                   <button
                     onClick={(e) => openDeleteModal(entity, e)}
-                    className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                    className="p-1 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"
                     title="削除"
                   >
-                    <Trash2 size={16} />
+                    <Trash2 size={14} />
                   </button>
                 </div>
               </div>

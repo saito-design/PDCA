@@ -69,10 +69,15 @@ export default function CompanyReportPreviewPage({ params }: PageProps) {
               )
               const cyclesData = await cyclesRes.json()
               if (cyclesData.success && cyclesData.data.length > 0) {
-                // 最新のサイクルを取得（APIで既にソート済みだが念のため）
+                // 最新のサイクルを取得（同日に複数ある場合はcreated_atで判断）
                 const sorted = [...cyclesData.data].sort(
-                  (a: PdcaCycle, b: PdcaCycle) =>
-                    new Date(b.cycle_date).getTime() - new Date(a.cycle_date).getTime()
+                  (a: PdcaCycle, b: PdcaCycle) => {
+                    // まず日付で比較
+                    const dateDiff = new Date(b.cycle_date).getTime() - new Date(a.cycle_date).getTime()
+                    if (dateDiff !== 0) return dateDiff
+                    // 同日の場合はcreated_atで比較
+                    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                  }
                 )
                 cyclesMap[entity.id] = sorted[0]
               } else {
@@ -171,7 +176,14 @@ export default function CompanyReportPreviewPage({ params }: PageProps) {
 
             {/* 部署ごとのセクション */}
             {entities.map((entity) => {
-              const entityTasks = activeTasks.filter(t => t.entity_name === entity.name)
+              const entityTasks = activeTasks
+                .filter(t => t.entity_name === entity.name)
+                .sort((a, b) => {
+                  // doing(実行中)を最上部に
+                  if (a.status === 'doing' && b.status !== 'doing') return -1
+                  if (a.status !== 'doing' && b.status === 'doing') return 1
+                  return 0
+                })
               const latestCycle = cyclesByEntity[entity.id]
 
               // タスクもサイクルもない部署はスキップ
