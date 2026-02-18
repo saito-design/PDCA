@@ -2,7 +2,7 @@
 
 import { useState, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
-import { Store, ChevronLeft, LogOut, LayoutDashboard, Eye, Plus, FileText } from 'lucide-react'
+import { Store, ChevronLeft, LogOut, LayoutDashboard, Eye, Plus, FileText, Pencil, Trash2 } from 'lucide-react'
 import type { Entity, Client, SessionData } from '@/lib/types'
 
 type PageProps = {
@@ -20,6 +20,11 @@ export default function EntitiesPage({ params }: PageProps) {
   const [showAddModal, setShowAddModal] = useState(false)
   const [newEntityName, setNewEntityName] = useState('')
   const [adding, setAdding] = useState(false)
+  const [editingEntity, setEditingEntity] = useState<Entity | null>(null)
+  const [editName, setEditName] = useState('')
+  const [updating, setUpdating] = useState(false)
+  const [deletingEntity, setDeletingEntity] = useState<Entity | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     fetchData()
@@ -109,6 +114,65 @@ export default function EntitiesPage({ params }: PageProps) {
     }
   }
 
+  const handleEditEntity = async () => {
+    if (!editingEntity || !editName.trim()) {
+      alert('部署/店舗名を入力してください')
+      return
+    }
+    setUpdating(true)
+    try {
+      const res = await fetch(`/api/clients/${clientId}/entities/${editingEntity.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: editName }),
+      })
+      const data = await res.json()
+      if (data.success) {
+        setEditingEntity(null)
+        setEditName('')
+        fetchData()
+      } else {
+        alert(data.error || '更新に失敗しました')
+      }
+    } catch {
+      alert('更新に失敗しました')
+    } finally {
+      setUpdating(false)
+    }
+  }
+
+  const handleDeleteEntity = async () => {
+    if (!deletingEntity) return
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/clients/${clientId}/entities/${deletingEntity.id}`, {
+        method: 'DELETE',
+      })
+      const data = await res.json()
+      if (data.success) {
+        setDeletingEntity(null)
+        fetchData()
+      } else {
+        alert(data.error || '削除に失敗しました')
+      }
+    } catch {
+      alert('削除に失敗しました')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
+  const openEditModal = (entity: Entity, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setEditingEntity(entity)
+    setEditName(entity.name)
+  }
+
+  const openDeleteModal = (entity: Entity, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setDeletingEntity(entity)
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -182,24 +246,44 @@ export default function EntitiesPage({ params }: PageProps) {
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {entities.map((entity) => (
-            <button
+            <div
               key={entity.id}
-              onClick={() => handleSelectEntity(entity.id)}
-              className="bg-white rounded-xl shadow p-6 text-left hover:shadow-md transition-shadow"
+              className="bg-white rounded-xl shadow p-6 hover:shadow-md transition-shadow"
             >
-              <div className="flex items-center gap-3">
-                <div className="bg-green-100 p-2 rounded-lg">
-                  <Store className="text-green-600" size={24} />
-                </div>
-                <div>
-                  <div className="font-semibold">{entity.name}</div>
-                  <div className="text-sm text-gray-500 flex items-center gap-1">
-                    <LayoutDashboard size={12} />
-                    ダッシュボードを開く
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={() => handleSelectEntity(entity.id)}
+                  className="flex items-center gap-3 text-left flex-1"
+                >
+                  <div className="bg-green-100 p-2 rounded-lg">
+                    <Store className="text-green-600" size={24} />
                   </div>
+                  <div>
+                    <div className="font-semibold">{entity.name}</div>
+                    <div className="text-sm text-gray-500 flex items-center gap-1">
+                      <LayoutDashboard size={12} />
+                      ダッシュボードを開く
+                    </div>
+                  </div>
+                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={(e) => openEditModal(entity, e)}
+                    className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg"
+                    title="名前を変更"
+                  >
+                    <Pencil size={16} />
+                  </button>
+                  <button
+                    onClick={(e) => openDeleteModal(entity, e)}
+                    className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                    title="削除"
+                  >
+                    <Trash2 size={16} />
+                  </button>
                 </div>
               </div>
-            </button>
+            </div>
           ))}
         </div>
 
@@ -240,6 +324,69 @@ export default function EntitiesPage({ params }: PageProps) {
                 className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
               >
                 {adding ? '追加中...' : '追加'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 編集モーダル */}
+      {editingEntity && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md mx-4">
+            <h3 className="text-lg font-semibold mb-4">部署/店舗名を変更</h3>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                新しい名前
+              </label>
+              <input
+                type="text"
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                className="w-full border rounded-lg px-3 py-2"
+              />
+            </div>
+            <div className="flex justify-end gap-2 mt-6">
+              <button
+                onClick={() => setEditingEntity(null)}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handleEditEntity}
+                disabled={updating}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                {updating ? '更新中...' : '更新'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 削除確認モーダル */}
+      {deletingEntity && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md mx-4">
+            <h3 className="text-lg font-semibold mb-4">部署/店舗を削除</h3>
+            <p className="text-gray-600 mb-4">
+              「{deletingEntity.name}」を削除しますか？<br />
+              <span className="text-red-600 text-sm">この操作は取り消せません。</span>
+            </p>
+            <div className="flex justify-end gap-2 mt-6">
+              <button
+                onClick={() => setDeletingEntity(null)}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+              >
+                キャンセル
+              </button>
+              <button
+                onClick={handleDeleteEntity}
+                disabled={deleting}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+              >
+                {deleting ? '削除中...' : '削除'}
               </button>
             </div>
           </div>

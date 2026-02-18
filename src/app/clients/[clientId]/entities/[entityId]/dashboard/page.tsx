@@ -163,11 +163,11 @@ export default function DashboardPage({ params }: PageProps) {
           // 無視
         }
 
-        // サイクル履歴を取得
+        // サイクル履歴を取得（entity_idでフィルタ）
         setCyclesLoading(true)
         try {
           const cyclesRes = await fetch(
-            `/api/clients/${clientId}/entities/${entityId}/pdca/tasks/task-1/cycles`
+            `/api/clients/${clientId}/entities/${entityId}/cycles`
           )
           const cyclesData = await cyclesRes.json()
           if (cyclesData.success) {
@@ -275,7 +275,7 @@ export default function DashboardPage({ params }: PageProps) {
       if (result.success) {
         // 保存成功 - サイクル一覧を再取得
         const cyclesRes = await fetch(
-          `/api/clients/${clientId}/entities/${entityId}/pdca/tasks/task-1/cycles`
+          `/api/clients/${clientId}/entities/${entityId}/cycles`
         )
         const cyclesData = await cyclesRes.json()
         if (cyclesData.success) {
