@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { ApiResponse, PdcaCycle, PdcaStatus, Client } from '@/lib/types'
+import { ApiResponse, PdcaCycle, PdcaStatus, Client, Entity } from '@/lib/types'
 import {
   isDriveConfigured,
   getPdcaFolderId,
@@ -9,7 +9,8 @@ import {
 } from '@/lib/drive'
 
 const CLIENTS_FILENAME = 'clients.json'
-const CYCLES_FILENAME = 'pdca-cycles.json'
+const ENTITIES_FILENAME = 'entities.json'
+const CYCLES_FILENAME = 'cycles.json'
 
 // Google Driveからクライアント一覧を読み込む
 async function loadClients(): Promise<Client[]> {
@@ -30,10 +31,28 @@ async function getClientFolderId(clientId: string): Promise<string | null> {
   return client?.drive_folder_id || null
 }
 
-// Google Driveからサイクルを読み込む
-async function loadCycles(clientFolderId: string): Promise<PdcaCycle[]> {
+// エンティティ一覧を読み込む
+async function loadEntities(clientFolderId: string): Promise<Entity[]> {
   try {
-    const result = await loadJsonFromFolder<PdcaCycle[]>(CYCLES_FILENAME, clientFolderId)
+    const result = await loadJsonFromFolder<Entity[]>(ENTITIES_FILENAME, clientFolderId)
+    return result?.data || []
+  } catch (error) {
+    console.warn('エンティティ読み込みエラー:', error)
+    return []
+  }
+}
+
+// 部署のdrive_folder_idを取得
+async function getEntityFolderId(clientFolderId: string, entityId: string): Promise<string | null> {
+  const entities = await loadEntities(clientFolderId)
+  const entity = entities.find(e => e.id === entityId)
+  return entity?.drive_folder_id || null
+}
+
+// 部署フォルダからサイクルを読み込む
+async function loadCycles(entityFolderId: string): Promise<PdcaCycle[]> {
+  try {
+    const result = await loadJsonFromFolder<PdcaCycle[]>(CYCLES_FILENAME, entityFolderId)
     return result?.data || []
   } catch (error) {
     console.warn('サイクル読み込みエラー:', error)
@@ -41,9 +60,9 @@ async function loadCycles(clientFolderId: string): Promise<PdcaCycle[]> {
   }
 }
 
-// Google Driveにサイクルを保存
-async function saveCycles(cycles: PdcaCycle[], clientFolderId: string): Promise<void> {
-  await saveJsonToFolder(cycles, CYCLES_FILENAME, clientFolderId)
+// 部署フォルダにサイクルを保存
+async function saveCycles(cycles: PdcaCycle[], entityFolderId: string): Promise<void> {
+  await saveJsonToFolder(cycles, CYCLES_FILENAME, entityFolderId)
 }
 
 type RouteParams = {
@@ -57,9 +76,9 @@ export async function GET(
 ): Promise<NextResponse<ApiResponse<PdcaCycle[]>>> {
   try {
     await requireAuth()
-    const { clientId, taskId } = await context.params
+    const { clientId, entityId, taskId } = await context.params
 
-    if (!clientId || !taskId) {
+    if (!clientId || !entityId || !taskId) {
       return NextResponse.json(
         { success: false, error: '無効なパラメータです' },
         { status: 400 }
@@ -82,7 +101,15 @@ export async function GET(
       )
     }
 
-    const allCycles = await loadCycles(clientFolderId)
+    const entityFolderId = await getEntityFolderId(clientFolderId, entityId)
+    if (!entityFolderId) {
+      return NextResponse.json(
+        { success: false, error: '部署が見つかりません' },
+        { status: 404 }
+      )
+    }
+
+    const allCycles = await loadCycles(entityFolderId)
     const filtered = allCycles.filter((c) => c.issue_id === taskId)
 
     // サイクル日付の降順でソート
@@ -149,10 +176,26 @@ export async function POST(
       )
     }
 
+    const clientFolderId = await getClientFolderId(clientId)
+    if (!clientFolderId) {
+      return NextResponse.json(
+        { success: false, error: '企業が見つかりません' },
+        { status: 404 }
+      )
+    }
+
+    const entityFolderId = await getEntityFolderId(clientFolderId, entityId)
+    if (!entityFolderId) {
+      return NextResponse.json(
+        { success: false, error: '部署が見つかりません' },
+        { status: 404 }
+      )
+    }
+
     const newCycle: PdcaCycle = {
       id: `cycle-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       client_id: clientId,
-      entity_id: entityId,  // 部署IDを追加
+      entity_id: entityId,
       issue_id: taskId,
       cycle_date,
       situation: situation || '',
@@ -164,17 +207,9 @@ export async function POST(
       updated_at: new Date().toISOString(),
     }
 
-    const clientFolderId = await getClientFolderId(clientId)
-    if (!clientFolderId) {
-      return NextResponse.json(
-        { success: false, error: '企業が見つかりません' },
-        { status: 404 }
-      )
-    }
-
-    const allCycles = await loadCycles(clientFolderId)
+    const allCycles = await loadCycles(entityFolderId)
     allCycles.push(newCycle)
-    await saveCycles(allCycles, clientFolderId)
+    await saveCycles(allCycles, entityFolderId)
 
     return NextResponse.json({
       success: true,
@@ -202,10 +237,10 @@ export async function PATCH(
 ): Promise<NextResponse<ApiResponse<PdcaCycle>>> {
   try {
     await requireAuth()
-    const { clientId, taskId } = await context.params
+    const { clientId, entityId, taskId } = await context.params
     const body = await request.json()
 
-    if (!clientId || !taskId) {
+    if (!clientId || !entityId || !taskId) {
       return NextResponse.json(
         { success: false, error: '無効なパラメータです' },
         { status: 400 }
@@ -237,7 +272,15 @@ export async function PATCH(
       )
     }
 
-    const allCycles = await loadCycles(clientFolderId)
+    const entityFolderId = await getEntityFolderId(clientFolderId, entityId)
+    if (!entityFolderId) {
+      return NextResponse.json(
+        { success: false, error: '部署が見つかりません' },
+        { status: 404 }
+      )
+    }
+
+    const allCycles = await loadCycles(entityFolderId)
     const idx = allCycles.findIndex((c) => c.id === id && c.issue_id === taskId)
 
     if (idx === -1) {
@@ -255,7 +298,7 @@ export async function PATCH(
     if (status !== undefined) allCycles[idx].status = status
     allCycles[idx].updated_at = new Date().toISOString()
 
-    await saveCycles(allCycles, clientFolderId)
+    await saveCycles(allCycles, entityFolderId)
 
     return NextResponse.json({
       success: true,

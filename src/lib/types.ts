@@ -11,6 +11,7 @@ export interface Entity {
   id: string
   client_id: string
   name: string
+  drive_folder_id?: string  // 部署ごとのDriveフォルダID
   sort_order: number
   created_at: string
 }

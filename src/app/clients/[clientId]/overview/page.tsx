@@ -81,20 +81,36 @@ export default function OverviewPage({ params }: PageProps) {
         const entitiesData = await entitiesRes.json()
         if (entitiesData.success) {
           setEntities(entitiesData.data)
-        }
 
-        // 全PDCAタスク取得
-        const issuesRes = await fetch(`/api/clients/${clientId}/pdca-tasks`)
-        const issuesData = await issuesRes.json()
-        if (issuesData.success) {
-          setIssues(issuesData.data)
-        }
+          // 各部署のタスクを取得してマージ
+          const allTasks: Task[] = []
+          const allIssues: PdcaIssue[] = []
 
-        // タスク取得
-        const tasksRes = await fetch(`/api/clients/${clientId}/tasks`)
-        const tasksData = await tasksRes.json()
-        if (tasksData.success) {
-          setTasks(tasksData.data)
+          for (const entity of entitiesData.data) {
+            try {
+              // 部署別タスクを取得
+              const tasksRes = await fetch(
+                `/api/clients/${clientId}/entities/${entity.id}/tasks`
+              )
+              const tasksData = await tasksRes.json()
+              if (tasksData.success) {
+                allTasks.push(...tasksData.data)
+              }
+
+              // 部署別PDCAタスクを取得
+              const issuesRes = await fetch(
+                `/api/clients/${clientId}/entities/${entity.id}/pdca/tasks`
+              )
+              const issuesData = await issuesRes.json()
+              if (issuesData.success) {
+                allIssues.push(...issuesData.data)
+              }
+            } catch {
+              // エラーを無視
+            }
+          }
+          setTasks(allTasks)
+          setIssues(allIssues)
         }
       } catch (error) {
         console.error('Fetch error:', error)

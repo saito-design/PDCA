@@ -6,6 +6,7 @@ import {
   getPdcaFolderId,
   loadJsonFromFolder,
   saveJsonToFolder,
+  ensureFolder,
 } from '@/lib/drive'
 
 const CLIENTS_FILENAME = 'clients.json'
@@ -205,11 +206,15 @@ export async function POST(
       )
     }
 
+    // 部署用サブフォルダを作成
+    const entityFolderId = await ensureFolder(name.trim(), clientFolderId)
+
     // 新しいエンティティを作成
     const newEntity: Entity = {
       id: `${clientId}-${Date.now()}`,
       client_id: clientId,
-      name,
+      name: name.trim(),
+      drive_folder_id: entityFolderId,
       sort_order: 100,
       created_at: new Date().toISOString(),
     }

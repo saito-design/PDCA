@@ -50,27 +50,22 @@ const STATUS_CONFIG: Record<PdcaStatus, {
 
 interface TaskManagerProps {
   tasks: Task[]
-  entityName: string
   onStatusChange: (taskId: string, newStatus: PdcaStatus) => void
   loading?: boolean
 }
 
 export function TaskManager({
   tasks,
-  entityName,
   onStatusChange,
   loading
 }: TaskManagerProps) {
   const [updatingId, setUpdatingId] = useState<string | null>(null)
 
-  // この部署のタスクのみフィルタ
-  const entityTasks = tasks.filter(t => t.entity_name === entityName)
-
-  // ステータス別に分類
-  const openTasks = entityTasks.filter(t => t.status === 'open')
-  const doingTasks = entityTasks.filter(t => t.status === 'doing')
-  const doneTasks = entityTasks.filter(t => t.status === 'done')
-  const pausedTasks = entityTasks.filter(t => t.status === 'paused')
+  // ステータス別に分類（部署フィルタは不要、既に部署別に取得済み）
+  const openTasks = tasks.filter(t => t.status === 'open')
+  const doingTasks = tasks.filter(t => t.status === 'doing')
+  const doneTasks = tasks.filter(t => t.status === 'done')
+  const pausedTasks = tasks.filter(t => t.status === 'paused')
 
   const handleStatusChange = (taskId: string, newStatus: PdcaStatus) => {
     setUpdatingId(taskId)

@@ -51,19 +51,23 @@ export default function CompanyReportPreviewPage({ params }: PageProps) {
           setEntities(entitiesData.data)
         }
 
-        // タスク一覧
-        const tasksRes = await fetch(`/api/clients/${clientId}/tasks`)
-        const tasksData = await tasksRes.json()
-        if (tasksData.success) {
-          setTasks(tasksData.data)
-        }
-
-        // 各部署の最新サイクルを取得（entity_idでフィルタ）
+        // 各部署のタスクとサイクルを取得
         if (entitiesData.success && entitiesData.data.length > 0) {
+          const allTasks: Task[] = []
           const cyclesMap: Record<string, PdcaCycle | null> = {}
+
           for (const entity of entitiesData.data) {
             try {
-              // entity_idでサイクルを取得する新しいAPI
+              // 部署別タスクを取得
+              const tasksRes = await fetch(
+                `/api/clients/${clientId}/entities/${entity.id}/tasks`
+              )
+              const tasksData = await tasksRes.json()
+              if (tasksData.success) {
+                allTasks.push(...tasksData.data)
+              }
+
+              // 部署別サイクルを取得
               const cyclesRes = await fetch(
                 `/api/clients/${clientId}/entities/${entity.id}/cycles`
               )
@@ -87,6 +91,7 @@ export default function CompanyReportPreviewPage({ params }: PageProps) {
               cyclesMap[entity.id] = null
             }
           }
+          setTasks(allTasks)
           setCyclesByEntity(cyclesMap)
         }
       } catch (error) {

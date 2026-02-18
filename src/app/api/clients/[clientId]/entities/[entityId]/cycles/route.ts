@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { ApiResponse, PdcaCycle, Client } from '@/lib/types'
+import { ApiResponse, PdcaCycle, Client, Entity } from '@/lib/types'
 import {
   isDriveConfigured,
   getPdcaFolderId,
@@ -8,7 +8,8 @@ import {
 } from '@/lib/drive'
 
 const CLIENTS_FILENAME = 'clients.json'
-const CYCLES_FILENAME = 'pdca-cycles.json'
+const ENTITIES_FILENAME = 'entities.json'
+const CYCLES_FILENAME = 'cycles.json'
 
 // Google Driveからクライアント一覧を読み込む
 async function loadClients(): Promise<Client[]> {
@@ -29,10 +30,28 @@ async function getClientFolderId(clientId: string): Promise<string | null> {
   return client?.drive_folder_id || null
 }
 
-// Google Driveからサイクルを読み込む
-async function loadCycles(clientFolderId: string): Promise<PdcaCycle[]> {
+// エンティティ一覧を読み込む
+async function loadEntities(clientFolderId: string): Promise<Entity[]> {
   try {
-    const result = await loadJsonFromFolder<PdcaCycle[]>(CYCLES_FILENAME, clientFolderId)
+    const result = await loadJsonFromFolder<Entity[]>(ENTITIES_FILENAME, clientFolderId)
+    return result?.data || []
+  } catch (error) {
+    console.warn('エンティティ読み込みエラー:', error)
+    return []
+  }
+}
+
+// 部署のdrive_folder_idを取得
+async function getEntityFolderId(clientFolderId: string, entityId: string): Promise<string | null> {
+  const entities = await loadEntities(clientFolderId)
+  const entity = entities.find(e => e.id === entityId)
+  return entity?.drive_folder_id || null
+}
+
+// 部署フォルダからサイクルを読み込む
+async function loadCycles(entityFolderId: string): Promise<PdcaCycle[]> {
+  try {
+    const result = await loadJsonFromFolder<PdcaCycle[]>(CYCLES_FILENAME, entityFolderId)
     return result?.data || []
   } catch (error) {
     console.warn('サイクル読み込みエラー:', error)
@@ -44,7 +63,7 @@ type RouteParams = {
   params: Promise<{ clientId: string; entityId: string }>
 }
 
-// 部署ごとのサイクル一覧取得（entity_idでフィルタ）
+// 部署ごとのサイクル一覧取得
 export async function GET(
   _request: NextRequest,
   context: RouteParams
@@ -76,16 +95,23 @@ export async function GET(
       )
     }
 
-    const allCycles = await loadCycles(clientFolderId)
-    // entity_idでフィルタリング
-    const filtered = allCycles.filter((c) => c.entity_id === entityId)
+    const entityFolderId = await getEntityFolderId(clientFolderId, entityId)
+    if (!entityFolderId) {
+      return NextResponse.json(
+        { success: false, error: '部署が見つかりません' },
+        { status: 404 }
+      )
+    }
+
+    // 部署フォルダから直接読み込む（フィルタ不要）
+    const cycles = await loadCycles(entityFolderId)
 
     // サイクル日付の降順でソート
-    filtered.sort((a, b) => new Date(b.cycle_date).getTime() - new Date(a.cycle_date).getTime())
+    cycles.sort((a, b) => new Date(b.cycle_date).getTime() - new Date(a.cycle_date).getTime())
 
     return NextResponse.json({
       success: true,
-      data: filtered,
+      data: cycles,
     })
   } catch (error) {
     if (error instanceof Error && error.message === 'Unauthorized') {

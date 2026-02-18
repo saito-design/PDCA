@@ -181,10 +181,10 @@ export default function DashboardPage({ params }: PageProps) {
           setCyclesLoading(false)
         }
 
-        // タスク一覧を取得
+        // タスク一覧を取得（部署別）
         setTasksLoading(true)
         try {
-          const tasksRes = await fetch(`/api/clients/${clientId}/tasks`)
+          const tasksRes = await fetch(`/api/clients/${clientId}/entities/${entityId}/tasks`)
           const tasksData = await tasksRes.json()
           if (tasksData.success) {
             setTasks(tasksData.data)
@@ -349,7 +349,7 @@ export default function DashboardPage({ params }: PageProps) {
     setSavingTasks(true)
     try {
       const promises = Array.from(pendingTaskChanges.entries()).map(([taskId, newStatus]) =>
-        fetch(`/api/clients/${clientId}/tasks/${taskId}`, {
+        fetch(`/api/clients/${clientId}/entities/${entityId}/tasks/${taskId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: newStatus }),
@@ -362,7 +362,7 @@ export default function DashboardPage({ params }: PageProps) {
       if (allSuccess) {
         setPendingTaskChanges(new Map())
         // タスク一覧を再取得
-        const tasksRes = await fetch(`/api/clients/${clientId}/tasks`)
+        const tasksRes = await fetch(`/api/clients/${clientId}/entities/${entityId}/tasks`)
         const tasksData = await tasksRes.json()
         if (tasksData.success) {
           setTasks(tasksData.data)
@@ -395,21 +395,18 @@ export default function DashboardPage({ params }: PageProps) {
     if (taskTitles.length === 0) return
 
     // 既存タスクのタイトルを取得
-    const existingTitles = tasks
-      .filter(t => t.entity_name === entity?.name)
-      .map(t => t.title)
+    const existingTitles = tasks.map(t => t.title)
 
     // 新しいタスクのみ追加
     const newTaskTitles = taskTitles.filter(title => !existingTitles.includes(title))
 
     for (const title of newTaskTitles) {
       try {
-        const res = await fetch(`/api/clients/${clientId}/tasks`, {
+        const res = await fetch(`/api/clients/${clientId}/entities/${entityId}/tasks`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             title,
-            entity_name: entity?.name || '',
             status: 'open',
           }),
         })
@@ -623,12 +620,12 @@ export default function DashboardPage({ params }: PageProps) {
             )}
 
             {/* 進行中タスク（最上部に表示）またはペンディング変更がある場合 */}
-            {(tasks.filter(t => t.entity_name === entity?.name && t.status === 'doing').length > 0 || pendingTaskChanges.size > 0) && (
+            {(tasks.filter(t => t.status === 'doing').length > 0 || pendingTaskChanges.size > 0) && (
               <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2 text-blue-700 font-semibold">
                     <span className="flex items-center justify-center w-5 h-5 bg-blue-600 text-white text-xs rounded-full">
-                      {tasks.filter(t => t.entity_name === entity?.name && t.status === 'doing').length}
+                      {tasks.filter(t => t.status === 'doing').length}
                     </span>
                     進行中のタスク
                   </div>
@@ -643,10 +640,10 @@ export default function DashboardPage({ params }: PageProps) {
                     </button>
                   )}
                 </div>
-                {tasks.filter(t => t.entity_name === entity?.name && t.status === 'doing').length > 0 ? (
+                {tasks.filter(t => t.status === 'doing').length > 0 ? (
                   <div className="space-y-1">
                     {tasks
-                      .filter(t => t.entity_name === entity?.name && t.status === 'doing')
+                      .filter(t => t.status === 'doing')
                       .map(task => (
                         <div key={task.id} className="flex items-center justify-between bg-white rounded-lg px-3 py-2 text-sm">
                           <span>{task.title}</span>
@@ -684,7 +681,6 @@ export default function DashboardPage({ params }: PageProps) {
             {/* タスク管理（下部に全ステータス表示） */}
             <TaskManager
               tasks={tasks}
-              entityName={entity?.name || ''}
               onStatusChange={handleTaskStatusChange}
               loading={tasksLoading}
             />

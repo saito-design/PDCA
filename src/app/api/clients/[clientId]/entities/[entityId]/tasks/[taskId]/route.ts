@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { ApiResponse, Task, Client, PdcaStatus } from '@/lib/types'
+import { ApiResponse, Task, Client, Entity, PdcaStatus } from '@/lib/types'
 import {
   isDriveConfigured,
   getPdcaFolderId,
@@ -9,6 +9,7 @@ import {
 } from '@/lib/drive'
 
 const CLIENTS_FILENAME = 'clients.json'
+const ENTITIES_FILENAME = 'entities.json'
 const TASKS_FILENAME = 'tasks.json'
 
 // Google Driveからクライアント一覧を読み込む
@@ -30,10 +31,28 @@ async function getClientFolderId(clientId: string): Promise<string | null> {
   return client?.drive_folder_id || null
 }
 
-// Google Driveからタスクを読み込む
-async function loadTasks(clientFolderId: string): Promise<Task[]> {
+// エンティティ一覧を読み込む
+async function loadEntities(clientFolderId: string): Promise<Entity[]> {
   try {
-    const result = await loadJsonFromFolder<Task[]>(TASKS_FILENAME, clientFolderId)
+    const result = await loadJsonFromFolder<Entity[]>(ENTITIES_FILENAME, clientFolderId)
+    return result?.data || []
+  } catch (error) {
+    console.warn('エンティティ読み込みエラー:', error)
+    return []
+  }
+}
+
+// 部署のdrive_folder_idを取得
+async function getEntityFolderId(clientFolderId: string, entityId: string): Promise<string | null> {
+  const entities = await loadEntities(clientFolderId)
+  const entity = entities.find(e => e.id === entityId)
+  return entity?.drive_folder_id || null
+}
+
+// 部署フォルダからタスクを読み込む
+async function loadTasks(entityFolderId: string): Promise<Task[]> {
+  try {
+    const result = await loadJsonFromFolder<Task[]>(TASKS_FILENAME, entityFolderId)
     return result?.data || []
   } catch (error) {
     console.warn('タスク読み込みエラー:', error)
@@ -41,13 +60,13 @@ async function loadTasks(clientFolderId: string): Promise<Task[]> {
   }
 }
 
-// Google Driveにタスクを保存
-async function saveTasks(tasks: Task[], clientFolderId: string): Promise<void> {
-  await saveJsonToFolder(tasks, TASKS_FILENAME, clientFolderId)
+// 部署フォルダにタスクを保存
+async function saveTasks(tasks: Task[], entityFolderId: string): Promise<void> {
+  await saveJsonToFolder(tasks, TASKS_FILENAME, entityFolderId)
 }
 
 type RouteParams = {
-  params: Promise<{ clientId: string; taskId: string }>
+  params: Promise<{ clientId: string; entityId: string; taskId: string }>
 }
 
 // タスク更新（PATCH）
@@ -57,10 +76,10 @@ export async function PATCH(
 ): Promise<NextResponse<ApiResponse<Task>>> {
   try {
     await requireAuth()
-    const { clientId, taskId } = await context.params
+    const { clientId, entityId, taskId } = await context.params
     const body = await request.json()
 
-    if (!clientId || !taskId) {
+    if (!clientId || !entityId || !taskId) {
       return NextResponse.json(
         { success: false, error: '無効なパラメータです' },
         { status: 400 }
@@ -82,8 +101,16 @@ export async function PATCH(
       )
     }
 
-    const tasks = await loadTasks(clientFolderId)
-    const idx = tasks.findIndex((t) => t.id === taskId && t.client_id === clientId)
+    const entityFolderId = await getEntityFolderId(clientFolderId, entityId)
+    if (!entityFolderId) {
+      return NextResponse.json(
+        { success: false, error: '部署が見つかりません' },
+        { status: 404 }
+      )
+    }
+
+    const tasks = await loadTasks(entityFolderId)
+    const idx = tasks.findIndex((t) => t.id === taskId)
 
     if (idx === -1) {
       return NextResponse.json(
@@ -103,10 +130,9 @@ export async function PATCH(
     // 更新
     if (body.title !== undefined) tasks[idx].title = body.title
     if (body.status !== undefined) tasks[idx].status = body.status as PdcaStatus
-    if (body.entity_name !== undefined) tasks[idx].entity_name = body.entity_name
     tasks[idx].updated_at = new Date().toISOString()
 
-    await saveTasks(tasks, clientFolderId)
+    await saveTasks(tasks, entityFolderId)
 
     return NextResponse.json({ success: true, data: tasks[idx] })
   } catch (error) {
@@ -131,9 +157,9 @@ export async function DELETE(
 ): Promise<NextResponse<ApiResponse<null>>> {
   try {
     await requireAuth()
-    const { clientId, taskId } = await context.params
+    const { clientId, entityId, taskId } = await context.params
 
-    if (!clientId || !taskId) {
+    if (!clientId || !entityId || !taskId) {
       return NextResponse.json(
         { success: false, error: '無効なパラメータです' },
         { status: 400 }
@@ -155,8 +181,16 @@ export async function DELETE(
       )
     }
 
-    const tasks = await loadTasks(clientFolderId)
-    const idx = tasks.findIndex((t) => t.id === taskId && t.client_id === clientId)
+    const entityFolderId = await getEntityFolderId(clientFolderId, entityId)
+    if (!entityFolderId) {
+      return NextResponse.json(
+        { success: false, error: '部署が見つかりません' },
+        { status: 404 }
+      )
+    }
+
+    const tasks = await loadTasks(entityFolderId)
+    const idx = tasks.findIndex((t) => t.id === taskId)
 
     if (idx === -1) {
       return NextResponse.json(
@@ -166,7 +200,7 @@ export async function DELETE(
     }
 
     tasks.splice(idx, 1)
-    await saveTasks(tasks, clientFolderId)
+    await saveTasks(tasks, entityFolderId)
 
     return NextResponse.json({ success: true, data: null })
   } catch (error) {
