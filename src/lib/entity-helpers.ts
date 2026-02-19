@@ -1,4 +1,4 @@
-import { Client, Entity } from '@/lib/types'
+import { Client, Entity, Task, PdcaCycle } from '@/lib/types'
 import {
   getPdcaFolderId,
   loadJsonFromFolder,
@@ -8,6 +8,8 @@ import {
 
 const CLIENTS_FILENAME = 'clients.json'
 const ENTITIES_FILENAME = 'entities.json'
+const ALL_TASKS_FILENAME = 'all-tasks.json'
+const ALL_CYCLES_FILENAME = 'all-cycles.json'
 
 // Google Driveからクライアント一覧を読み込む
 export async function loadClients(): Promise<Client[]> {
@@ -85,4 +87,93 @@ export async function getEntity(
 ): Promise<Entity | null> {
   const entities = await loadEntities(clientFolderId)
   return entities.find(e => e.id === entityId) || null
+}
+
+// ========================================
+// まとめJSON操作関数
+// ========================================
+
+// 全タスク読み込み（企業フォルダ直下の all-tasks.json）
+export async function loadAllTasks(clientFolderId: string): Promise<Task[]> {
+  try {
+    const result = await loadJsonFromFolder<Task[]>(ALL_TASKS_FILENAME, clientFolderId)
+    return result?.data || []
+  } catch (error) {
+    console.warn('全タスク読み込みエラー:', error)
+    return []
+  }
+}
+
+// 全タスク保存
+export async function saveAllTasks(tasks: Task[], clientFolderId: string): Promise<void> {
+  await saveJsonToFolder(tasks, ALL_TASKS_FILENAME, clientFolderId)
+}
+
+// 全サイクル読み込み
+export async function loadAllCycles(clientFolderId: string): Promise<PdcaCycle[]> {
+  try {
+    const result = await loadJsonFromFolder<PdcaCycle[]>(ALL_CYCLES_FILENAME, clientFolderId)
+    return result?.data || []
+  } catch (error) {
+    console.warn('全サイクル読み込みエラー:', error)
+    return []
+  }
+}
+
+// 全サイクル保存
+export async function saveAllCycles(cycles: PdcaCycle[], clientFolderId: string): Promise<void> {
+  await saveJsonToFolder(cycles, ALL_CYCLES_FILENAME, clientFolderId)
+}
+
+// タスクをまとめJSONに追加
+export async function addTaskToAggregate(task: Task, clientFolderId: string): Promise<void> {
+  const allTasks = await loadAllTasks(clientFolderId)
+  allTasks.push(task)
+  await saveAllTasks(allTasks, clientFolderId)
+}
+
+// タスクをまとめJSONで更新
+export async function updateTaskInAggregate(task: Task, clientFolderId: string): Promise<void> {
+  const allTasks = await loadAllTasks(clientFolderId)
+  const idx = allTasks.findIndex(t => t.id === task.id)
+  if (idx !== -1) {
+    allTasks[idx] = task
+  } else {
+    // 見つからない場合は追加
+    allTasks.push(task)
+  }
+  await saveAllTasks(allTasks, clientFolderId)
+}
+
+// タスクをまとめJSONから削除
+export async function removeTaskFromAggregate(taskId: string, clientFolderId: string): Promise<void> {
+  const allTasks = await loadAllTasks(clientFolderId)
+  const filtered = allTasks.filter(t => t.id !== taskId)
+  await saveAllTasks(filtered, clientFolderId)
+}
+
+// サイクルをまとめJSONに追加
+export async function addCycleToAggregate(cycle: PdcaCycle, clientFolderId: string): Promise<void> {
+  const allCycles = await loadAllCycles(clientFolderId)
+  allCycles.push(cycle)
+  await saveAllCycles(allCycles, clientFolderId)
+}
+
+// サイクルをまとめJSONで更新
+export async function updateCycleInAggregate(cycle: PdcaCycle, clientFolderId: string): Promise<void> {
+  const allCycles = await loadAllCycles(clientFolderId)
+  const idx = allCycles.findIndex(c => c.id === cycle.id)
+  if (idx !== -1) {
+    allCycles[idx] = cycle
+  } else {
+    allCycles.push(cycle)
+  }
+  await saveAllCycles(allCycles, clientFolderId)
+}
+
+// サイクルをまとめJSONから削除
+export async function removeCycleFromAggregate(cycleId: string, clientFolderId: string): Promise<void> {
+  const allCycles = await loadAllCycles(clientFolderId)
+  const filtered = allCycles.filter(c => c.id !== cycleId)
+  await saveAllCycles(filtered, clientFolderId)
 }

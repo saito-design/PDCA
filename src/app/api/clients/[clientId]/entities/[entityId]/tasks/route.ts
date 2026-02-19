@@ -10,6 +10,7 @@ import {
   getClientFolderId,
   getEntityFolderId,
   loadEntities,
+  addTaskToAggregate,
 } from '@/lib/entity-helpers'
 
 const TASKS_FILENAME = 'tasks.json'
@@ -151,6 +152,9 @@ export async function POST(
     const tasks = await loadTasks(entityFolderId)
     tasks.push(newTask)
     await saveTasks(tasks, entityFolderId)
+
+    // まとめJSONにも追加
+    await addTaskToAggregate(newTask, clientFolderId)
 
     return NextResponse.json({ success: true, data: newTask })
   } catch (error) {

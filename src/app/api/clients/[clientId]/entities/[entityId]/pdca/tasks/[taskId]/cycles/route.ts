@@ -9,6 +9,8 @@ import {
 import {
   getClientFolderId,
   getEntityFolderId,
+  addCycleToAggregate,
+  updateCycleInAggregate,
 } from '@/lib/entity-helpers'
 
 const CYCLES_FILENAME = 'cycles.json'
@@ -175,6 +177,9 @@ export async function POST(
     allCycles.push(newCycle)
     await saveCycles(allCycles, entityFolderId)
 
+    // まとめJSONにも追加
+    await addCycleToAggregate(newCycle, clientFolderId)
+
     return NextResponse.json({
       success: true,
       data: newCycle,
@@ -263,6 +268,9 @@ export async function PATCH(
     allCycles[idx].updated_at = new Date().toISOString()
 
     await saveCycles(allCycles, entityFolderId)
+
+    // まとめJSONも更新
+    await updateCycleInAggregate(allCycles[idx], clientFolderId)
 
     return NextResponse.json({
       success: true,

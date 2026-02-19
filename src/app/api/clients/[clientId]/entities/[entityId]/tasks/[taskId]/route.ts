@@ -9,6 +9,8 @@ import {
 import {
   getClientFolderId,
   getEntityFolderId,
+  updateTaskInAggregate,
+  removeTaskFromAggregate,
 } from '@/lib/entity-helpers'
 
 const TASKS_FILENAME = 'tasks.json'
@@ -98,6 +100,9 @@ export async function PATCH(
 
     await saveTasks(tasks, entityFolderId)
 
+    // まとめJSONも更新
+    await updateTaskInAggregate(tasks[idx], clientFolderId)
+
     return NextResponse.json({ success: true, data: tasks[idx] })
   } catch (error) {
     if (error instanceof Error && error.message === 'Unauthorized') {
@@ -163,8 +168,12 @@ export async function DELETE(
       )
     }
 
+    const deletedTaskId = tasks[idx].id
     tasks.splice(idx, 1)
     await saveTasks(tasks, entityFolderId)
+
+    // まとめJSONからも削除
+    await removeTaskFromAggregate(deletedTaskId, clientFolderId)
 
     return NextResponse.json({ success: true, data: null })
   } catch (error) {
