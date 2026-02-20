@@ -13,6 +13,15 @@ const ALL_CYCLES_FILENAME = 'all-cycles.json'
 const ALL_PDCA_ISSUES_FILENAME = 'all-pdca-issues.json'
 const PDCA_ISSUES_FILENAME = 'pdca-issues.json'
 const PDCA_CYCLES_FILENAME = 'pdca-cycles.json'
+const MASTER_DATA_FILENAME = 'master-data.json'
+
+// マスターデータの型
+export interface MasterData {
+  version: string
+  updated_at: string
+  issues: (PdcaIssue & { entity_name?: string; date?: string })[]
+  cycles: PdcaCycle[]
+}
 
 // Google Driveからクライアント一覧を読み込む
 export async function loadClients(): Promise<Client[]> {
@@ -90,6 +99,34 @@ export async function getEntity(
 ): Promise<Entity | null> {
   const entities = await loadEntities(clientFolderId)
   return entities.find(e => e.id === entityId) || null
+}
+
+// ========================================
+// マスターデータ（統合JSON）操作
+// ========================================
+
+// マスターデータ読み込み
+export async function loadMasterData(clientFolderId: string): Promise<MasterData | null> {
+  try {
+    const result = await loadJsonFromFolder<MasterData>(MASTER_DATA_FILENAME, clientFolderId)
+    if (result?.data) {
+      console.log('loadMasterData: master-data.json loaded', {
+        issues: result.data.issues?.length || 0,
+        cycles: result.data.cycles?.length || 0,
+      })
+      return result.data
+    }
+    return null
+  } catch (error) {
+    console.warn('マスターデータ読み込みエラー:', error)
+    return null
+  }
+}
+
+// マスターデータ保存
+export async function saveMasterData(data: MasterData, clientFolderId: string): Promise<void> {
+  data.updated_at = new Date().toISOString()
+  await saveJsonToFolder(data, MASTER_DATA_FILENAME, clientFolderId)
 }
 
 // ========================================

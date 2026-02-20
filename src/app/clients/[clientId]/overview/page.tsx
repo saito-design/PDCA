@@ -76,41 +76,37 @@ export default function OverviewPage({ params }: PageProps) {
           setClient(clientsData.data.find((c: Client) => c.id === clientId) || null)
         }
 
-        // 部署/店舗一覧
-        const entitiesRes = await fetch(`/api/clients/${clientId}/entities`)
-        const entitiesData = await entitiesRes.json()
+        // 部署/店舗一覧とマスターデータを並列取得
+        const [entitiesRes, masterDataRes] = await Promise.all([
+          fetch(`/api/clients/${clientId}/entities`),
+          fetch(`/api/clients/${clientId}/master-data`),
+        ])
+
+        const [entitiesData, masterDataResult] = await Promise.all([
+          entitiesRes.json(),
+          masterDataRes.json(),
+        ])
+
         if (entitiesData.success) {
           setEntities(entitiesData.data)
+        }
 
-          // 各部署のタスクを取得してマージ
-          const allTasks: Task[] = []
-          const allIssues: PdcaIssue[] = []
-
-          for (const entity of entitiesData.data) {
-            try {
-              // 部署別タスクを取得
-              const tasksRes = await fetch(
-                `/api/clients/${clientId}/entities/${entity.id}/tasks`
-              )
-              const tasksData = await tasksRes.json()
-              if (tasksData.success) {
-                allTasks.push(...tasksData.data)
-              }
-
-              // 部署別PDCAタスクを取得
-              const issuesRes = await fetch(
-                `/api/clients/${clientId}/entities/${entity.id}/pdca/tasks`
-              )
-              const issuesData = await issuesRes.json()
-              if (issuesData.success) {
-                allIssues.push(...issuesData.data)
-              }
-            } catch {
-              // エラーを無視
-            }
-          }
-          setTasks(allTasks)
-          setIssues(allIssues)
+        if (masterDataResult.success && masterDataResult.data) {
+          const masterData = masterDataResult.data
+          // issuesをPdcaIssue型に変換
+          setIssues(masterData.issues || [])
+          // issuesからTaskに変換（entity_name, dateを持つ）
+          const tasksFromIssues: Task[] = (masterData.issues || []).map((issue: PdcaIssue & { entity_name?: string; date?: string }) => ({
+            id: issue.id,
+            client_id: issue.client_id,
+            entity_name: issue.entity_name || '',
+            title: issue.title,
+            status: issue.status,
+            date: issue.date || issue.created_at.split('T')[0],
+            created_at: issue.created_at,
+            updated_at: issue.updated_at,
+          }))
+          setTasks(tasksFromIssues)
         }
       } catch (error) {
         console.error('Fetch error:', error)
