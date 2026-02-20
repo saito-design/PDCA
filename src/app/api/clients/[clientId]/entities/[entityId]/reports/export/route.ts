@@ -1,67 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { saveFile, ensureFolder } from '@/lib/drive'
+import { saveFile, ensureFolder, isDriveConfigured } from '@/lib/drive'
 import { ApiResponse, PdcaIssue, PdcaCycle, Entity, Client } from '@/lib/types'
-import * as fs from 'fs'
-import * as path from 'path'
-
-// ローカル保存用のパス
-const LOCAL_CLIENTS_PATH = path.join(process.cwd(), '.cache', 'clients.json')
-const LOCAL_ENTITIES_PATH = path.join(process.cwd(), '.cache', 'entities.json')
-const LOCAL_ISSUES_PATH = path.join(process.cwd(), '.cache', 'pdca-issues.json')
-const LOCAL_CYCLES_PATH = path.join(process.cwd(), '.cache', 'pdca-cycles.json')
-
-// マスター企業データ
-const masterClients: Client[] = [
-  {
-    id: 'junestory',
-    name: '株式会社ジュネストリー',
-    drive_folder_id: null,
-    created_at: '2024-01-01T00:00:00.000Z',
-  },
-  {
-    id: 'tottori-kyosai',
-    name: '鳥取県市町村職員共済組合',
-    drive_folder_id: null,
-    created_at: '2026-02-16T00:00:00.000Z',
-  },
-]
-
-function loadLocalClients(): Client[] {
-  try {
-    if (fs.existsSync(LOCAL_CLIENTS_PATH)) {
-      return JSON.parse(fs.readFileSync(LOCAL_CLIENTS_PATH, 'utf-8'))
-    }
-  } catch { /* ignore */ }
-  return []
-}
-
-function loadLocalEntities(): Record<string, Entity[]> {
-  try {
-    if (fs.existsSync(LOCAL_ENTITIES_PATH)) {
-      return JSON.parse(fs.readFileSync(LOCAL_ENTITIES_PATH, 'utf-8'))
-    }
-  } catch { /* ignore */ }
-  return {}
-}
-
-function loadLocalIssues(): PdcaIssue[] {
-  try {
-    if (fs.existsSync(LOCAL_ISSUES_PATH)) {
-      return JSON.parse(fs.readFileSync(LOCAL_ISSUES_PATH, 'utf-8'))
-    }
-  } catch { /* ignore */ }
-  return []
-}
-
-function loadLocalCycles(): PdcaCycle[] {
-  try {
-    if (fs.existsSync(LOCAL_CYCLES_PATH)) {
-      return JSON.parse(fs.readFileSync(LOCAL_CYCLES_PATH, 'utf-8'))
-    }
-  } catch { /* ignore */ }
-  return []
-}
+import {
+  loadClients,
+  loadEntities,
+  loadAllIssues,
+  loadAllCycles,
+  getClientFolderId,
+} from '@/lib/entity-helpers'
 
 type RouteParams = {
   params: Promise<{ clientId: string; entityId: string }>
@@ -154,34 +101,58 @@ export async function POST(
       )
     }
 
-    // ローカルデータから取得
-    const allClients = [...masterClients, ...loadLocalClients()]
-    const client = allClients.find(c => c.id === clientId)
-
-    const allEntities = loadLocalEntities()
-    const entityList = allEntities[clientId] || []
-    const entity = entityList.find(e => e.id === entityId)
-
-    if (!client || !entity) {
+    // Drive未設定の場合
+    if (!isDriveConfigured()) {
       return NextResponse.json(
-        { success: false, error: 'データが見つかりません' },
+        { success: false, error: 'Google Driveが設定されていません' },
+        { status: 500 }
+      )
+    }
+
+    // Driveからクライアント情報を取得
+    const clients = await loadClients()
+    const client = clients.find(c => c.id === clientId)
+
+    if (!client) {
+      return NextResponse.json(
+        { success: false, error: '企業が見つかりません' },
         { status: 404 }
       )
     }
 
-    // イシューとサイクルを取得
-    const allIssues = loadLocalIssues()
-    const allCycles = loadLocalCycles()
+    const clientFolderId = await getClientFolderId(clientId)
+    if (!clientFolderId) {
+      return NextResponse.json(
+        { success: false, error: '企業フォルダが見つかりません' },
+        { status: 404 }
+      )
+    }
 
+    // Driveからエンティティ情報を取得
+    const entities = await loadEntities(clientFolderId)
+    const entity = entities.find(e => e.id === entityId)
+
+    if (!entity) {
+      return NextResponse.json(
+        { success: false, error: '部署が見つかりません' },
+        { status: 404 }
+      )
+    }
+
+    // Driveからイシューとサイクルを取得
+    const allIssues = await loadAllIssues(clientFolderId)
+    const allCycles = await loadAllCycles(clientFolderId)
+
+    // 部署でフィルタリング
     const filteredIssues = allIssues.filter(
-      i => i.client_id === clientId && i.entity_id === entityId
+      i => i.entity_id === entityId
     )
 
     const issuesWithCycles = filteredIssues.map(issue => ({
       ...issue,
-      cycles: allCycles.filter(c => c.issue_id === issue.id).sort(
-        (a, b) => new Date(b.cycle_date).getTime() - new Date(a.cycle_date).getTime()
-      ),
+      cycles: allCycles
+        .filter(c => c.issue_id === issue.id)
+        .sort((a, b) => new Date(b.cycle_date).getTime() - new Date(a.cycle_date).getTime()),
     }))
 
     // レポート生成

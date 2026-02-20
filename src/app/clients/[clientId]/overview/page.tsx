@@ -76,41 +76,27 @@ export default function OverviewPage({ params }: PageProps) {
           setClient(clientsData.data.find((c: Client) => c.id === clientId) || null)
         }
 
-        // 部署/店舗一覧
-        const entitiesRes = await fetch(`/api/clients/${clientId}/entities`)
-        const entitiesData = await entitiesRes.json()
+        // 部署/店舗一覧、全タスク、全PDCAイシューを並列取得
+        const [entitiesRes, tasksRes, issuesRes] = await Promise.all([
+          fetch(`/api/clients/${clientId}/entities`),
+          fetch(`/api/clients/${clientId}/all-tasks`),
+          fetch(`/api/clients/${clientId}/all-pdca-issues`),
+        ])
+
+        const [entitiesData, tasksData, issuesData] = await Promise.all([
+          entitiesRes.json(),
+          tasksRes.json(),
+          issuesRes.json(),
+        ])
+
         if (entitiesData.success) {
           setEntities(entitiesData.data)
-
-          // 各部署のタスクを取得してマージ
-          const allTasks: Task[] = []
-          const allIssues: PdcaIssue[] = []
-
-          for (const entity of entitiesData.data) {
-            try {
-              // 部署別タスクを取得
-              const tasksRes = await fetch(
-                `/api/clients/${clientId}/entities/${entity.id}/tasks`
-              )
-              const tasksData = await tasksRes.json()
-              if (tasksData.success) {
-                allTasks.push(...tasksData.data)
-              }
-
-              // 部署別PDCAタスクを取得
-              const issuesRes = await fetch(
-                `/api/clients/${clientId}/entities/${entity.id}/pdca/tasks`
-              )
-              const issuesData = await issuesRes.json()
-              if (issuesData.success) {
-                allIssues.push(...issuesData.data)
-              }
-            } catch {
-              // エラーを無視
-            }
-          }
-          setTasks(allTasks)
-          setIssues(allIssues)
+        }
+        if (tasksData.success) {
+          setTasks(tasksData.data)
+        }
+        if (issuesData.success) {
+          setIssues(issuesData.data)
         }
       } catch (error) {
         console.error('Fetch error:', error)

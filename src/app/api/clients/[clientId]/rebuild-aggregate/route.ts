@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { ApiResponse, Task, PdcaCycle } from '@/lib/types'
+import { ApiResponse, Task, PdcaCycle, PdcaIssue } from '@/lib/types'
 import { isDriveConfigured, loadJsonFromFolder } from '@/lib/drive'
 import {
   getClientFolderId,
@@ -8,10 +8,12 @@ import {
   getEntityFolderId,
   saveAllTasks,
   saveAllCycles,
+  saveAllIssues,
 } from '@/lib/entity-helpers'
 
 const TASKS_FILENAME = 'tasks.json'
 const CYCLES_FILENAME = 'cycles.json'
+const PDCA_ISSUES_FILENAME = 'pdca-issues.json'
 
 type RouteParams = {
   params: Promise<{ clientId: string }>
@@ -20,6 +22,7 @@ type RouteParams = {
 interface RebuildResult {
   tasksCount: number
   cyclesCount: number
+  issuesCount: number
   entitiesProcessed: number
 }
 
@@ -88,15 +91,28 @@ export async function POST(
       }
     }
 
+    // 企業フォルダのpdca-issues.jsonを読み込み
+    let allIssues: PdcaIssue[] = []
+    try {
+      const issuesResult = await loadJsonFromFolder<PdcaIssue[]>(PDCA_ISSUES_FILENAME, clientFolderId)
+      if (issuesResult?.data) {
+        allIssues = issuesResult.data
+      }
+    } catch (error) {
+      console.warn('pdca-issues.json読み込みエラー:', error)
+    }
+
     // まとめJSONを保存
     await saveAllTasks(allTasks, clientFolderId)
     await saveAllCycles(allCycles, clientFolderId)
+    await saveAllIssues(allIssues, clientFolderId)
 
     return NextResponse.json({
       success: true,
       data: {
         tasksCount: allTasks.length,
         cyclesCount: allCycles.length,
+        issuesCount: allIssues.length,
         entitiesProcessed,
       },
     })

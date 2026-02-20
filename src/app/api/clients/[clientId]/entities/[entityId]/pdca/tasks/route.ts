@@ -1,34 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { ApiResponse, PdcaIssue, PdcaStatus, Client } from '@/lib/types'
+import { ApiResponse, PdcaIssue, PdcaStatus } from '@/lib/types'
 import {
   isDriveConfigured,
-  getPdcaFolderId,
   loadJsonFromFolder,
   saveJsonToFolder,
 } from '@/lib/drive'
+import {
+  getClientFolderId,
+  addIssueToAggregate,
+  updateIssueInAggregate,
+} from '@/lib/entity-helpers'
 
-const CLIENTS_FILENAME = 'clients.json'
 const ISSUES_FILENAME = 'pdca-issues.json'
-
-// Google Driveからクライアント一覧を読み込む
-async function loadClients(): Promise<Client[]> {
-  try {
-    const pdcaFolderId = getPdcaFolderId()
-    const result = await loadJsonFromFolder<Client[]>(CLIENTS_FILENAME, pdcaFolderId)
-    return result?.data || []
-  } catch (error) {
-    console.warn('クライアント読み込みエラー:', error)
-    return []
-  }
-}
-
-// 企業のdrive_folder_idを取得
-async function getClientFolderId(clientId: string): Promise<string | null> {
-  const clients = await loadClients()
-  const client = clients.find(c => c.id === clientId)
-  return client?.drive_folder_id || null
-}
 
 // Google Driveからタスクを読み込む
 async function loadTasks(clientFolderId: string): Promise<PdcaIssue[]> {
@@ -166,6 +150,9 @@ export async function POST(
     allTasks.push(newTask)
     await saveTasks(allTasks, clientFolderId)
 
+    // まとめJSONにも追加
+    await addIssueToAggregate(newTask, clientFolderId)
+
     return NextResponse.json({
       success: true,
       data: newTask,
@@ -252,6 +239,9 @@ export async function PATCH(
     allTasks[idx].updated_at = new Date().toISOString()
 
     await saveTasks(allTasks, clientFolderId)
+
+    // まとめJSONも更新
+    await updateIssueInAggregate(allTasks[idx], clientFolderId)
 
     return NextResponse.json({
       success: true,

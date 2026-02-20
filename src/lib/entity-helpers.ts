@@ -1,4 +1,4 @@
-import { Client, Entity, Task, PdcaCycle } from '@/lib/types'
+import { Client, Entity, Task, PdcaCycle, PdcaIssue } from '@/lib/types'
 import {
   getPdcaFolderId,
   loadJsonFromFolder,
@@ -10,6 +10,7 @@ const CLIENTS_FILENAME = 'clients.json'
 const ENTITIES_FILENAME = 'entities.json'
 const ALL_TASKS_FILENAME = 'all-tasks.json'
 const ALL_CYCLES_FILENAME = 'all-cycles.json'
+const ALL_PDCA_ISSUES_FILENAME = 'all-pdca-issues.json'
 
 // Google Driveからクライアント一覧を読み込む
 export async function loadClients(): Promise<Client[]> {
@@ -125,6 +126,22 @@ export async function saveAllCycles(cycles: PdcaCycle[], clientFolderId: string)
   await saveJsonToFolder(cycles, ALL_CYCLES_FILENAME, clientFolderId)
 }
 
+// 全PDCAイシュー読み込み
+export async function loadAllIssues(clientFolderId: string): Promise<PdcaIssue[]> {
+  try {
+    const result = await loadJsonFromFolder<PdcaIssue[]>(ALL_PDCA_ISSUES_FILENAME, clientFolderId)
+    return result?.data || []
+  } catch (error) {
+    console.warn('全PDCAイシュー読み込みエラー:', error)
+    return []
+  }
+}
+
+// 全PDCAイシュー保存
+export async function saveAllIssues(issues: PdcaIssue[], clientFolderId: string): Promise<void> {
+  await saveJsonToFolder(issues, ALL_PDCA_ISSUES_FILENAME, clientFolderId)
+}
+
 // タスクをまとめJSONに追加
 export async function addTaskToAggregate(task: Task, clientFolderId: string): Promise<void> {
   const allTasks = await loadAllTasks(clientFolderId)
@@ -176,4 +193,30 @@ export async function removeCycleFromAggregate(cycleId: string, clientFolderId: 
   const allCycles = await loadAllCycles(clientFolderId)
   const filtered = allCycles.filter(c => c.id !== cycleId)
   await saveAllCycles(filtered, clientFolderId)
+}
+
+// PDCAイシューをまとめJSONに追加
+export async function addIssueToAggregate(issue: PdcaIssue, clientFolderId: string): Promise<void> {
+  const allIssues = await loadAllIssues(clientFolderId)
+  allIssues.push(issue)
+  await saveAllIssues(allIssues, clientFolderId)
+}
+
+// PDCAイシューをまとめJSONで更新
+export async function updateIssueInAggregate(issue: PdcaIssue, clientFolderId: string): Promise<void> {
+  const allIssues = await loadAllIssues(clientFolderId)
+  const idx = allIssues.findIndex(i => i.id === issue.id)
+  if (idx !== -1) {
+    allIssues[idx] = issue
+  } else {
+    allIssues.push(issue)
+  }
+  await saveAllIssues(allIssues, clientFolderId)
+}
+
+// PDCAイシューをまとめJSONから削除
+export async function removeIssueFromAggregate(issueId: string, clientFolderId: string): Promise<void> {
+  const allIssues = await loadAllIssues(clientFolderId)
+  const filtered = allIssues.filter(i => i.id !== issueId)
+  await saveAllIssues(filtered, clientFolderId)
 }
