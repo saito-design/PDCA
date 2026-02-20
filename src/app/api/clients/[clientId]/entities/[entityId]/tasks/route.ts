@@ -1,35 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { ApiResponse, Task } from '@/lib/types'
-import {
-  isDriveConfigured,
-  loadJsonFromFolder,
-  saveJsonToFolder,
-} from '@/lib/drive'
+import { ApiResponse, Task, PdcaIssue } from '@/lib/types'
+import { isDriveConfigured } from '@/lib/drive'
 import {
   getClientFolderId,
-  getEntityFolderId,
   loadEntities,
-  addTaskToAggregate,
+  loadMasterData,
+  saveMasterData,
 } from '@/lib/entity-helpers'
-
-const TASKS_FILENAME = 'tasks.json'
-
-// 部署フォルダからタスクを読み込む
-async function loadTasks(entityFolderId: string): Promise<Task[]> {
-  try {
-    const result = await loadJsonFromFolder<Task[]>(TASKS_FILENAME, entityFolderId)
-    return result?.data || []
-  } catch (error) {
-    console.warn('タスク読み込みエラー:', error)
-    return []
-  }
-}
-
-// 部署フォルダにタスクを保存
-async function saveTasks(tasks: Task[], entityFolderId: string): Promise<void> {
-  await saveJsonToFolder(tasks, TASKS_FILENAME, entityFolderId)
-}
 
 type RouteParams = {
   params: Promise<{ clientId: string; entityId: string }>
@@ -63,15 +41,26 @@ export async function GET(
       )
     }
 
-    const entityFolderId = await getEntityFolderId(clientFolderId, entityId)
-    if (!entityFolderId) {
-      return NextResponse.json(
-        { success: false, error: '部署が見つかりません' },
-        { status: 404 }
-      )
-    }
+    // master-data.jsonからissuesを取得し、Task形式に変換
+    const masterData = await loadMasterData(clientFolderId)
+    const entities = await loadEntities(clientFolderId)
+    const entity = entities.find(e => e.id === entityId)
 
-    const tasks = await loadTasks(entityFolderId)
+    const allIssues = masterData?.issues || []
+    // entity_idでフィルタリング
+    const filtered = allIssues.filter(i => i.entity_id === entityId)
+
+    // Task形式に変換
+    const tasks: Task[] = filtered.map(issue => ({
+      id: issue.id,
+      client_id: issue.client_id,
+      entity_name: issue.entity_name || entity?.name || '',
+      title: issue.title,
+      status: issue.status,
+      date: issue.date || issue.created_at.split('T')[0],
+      created_at: issue.created_at,
+      updated_at: issue.updated_at,
+    }))
 
     // 日付の降順でソート
     tasks.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -124,23 +113,18 @@ export async function POST(
       )
     }
 
-    const entityFolderId = await getEntityFolderId(clientFolderId, entityId)
-    if (!entityFolderId) {
-      return NextResponse.json(
-        { success: false, error: '部署が見つかりません' },
-        { status: 404 }
-      )
-    }
-
     // 部署名を取得
     const entities = await loadEntities(clientFolderId)
     const entity = entities.find(e => e.id === entityId)
     const entityName = entity?.name || ''
 
     const now = new Date().toISOString()
-    const newTask: Task = {
+
+    // master-data.jsonに追加するissue（entity_nameとdateを持つ）
+    const newIssue: PdcaIssue & { entity_name?: string; date?: string } = {
       id: `task-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       client_id: clientId,
+      entity_id: entityId,
       entity_name: entityName,
       title: body.title,
       status: body.status || 'open',
@@ -149,12 +133,26 @@ export async function POST(
       updated_at: now,
     }
 
-    const tasks = await loadTasks(entityFolderId)
-    tasks.push(newTask)
-    await saveTasks(tasks, entityFolderId)
+    const masterData = await loadMasterData(clientFolderId) || {
+      version: '1.0',
+      updated_at: '',
+      issues: [],
+      cycles: [],
+    }
+    masterData.issues.push(newIssue)
+    await saveMasterData(masterData, clientFolderId)
 
-    // まとめJSONにも追加
-    await addTaskToAggregate(newTask, clientFolderId)
+    // Task形式で返す
+    const newTask: Task = {
+      id: newIssue.id,
+      client_id: newIssue.client_id,
+      entity_name: entityName,
+      title: newIssue.title,
+      status: newIssue.status,
+      date: newIssue.date || now.split('T')[0],
+      created_at: newIssue.created_at,
+      updated_at: newIssue.updated_at,
+    }
 
     return NextResponse.json({ success: true, data: newTask })
   } catch (error) {

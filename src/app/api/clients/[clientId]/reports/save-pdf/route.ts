@@ -6,8 +6,7 @@ import {
   getClientFolderId,
   loadClients,
   loadEntities,
-  loadAllTasks,
-  loadAllCycles,
+  loadMasterData,
 } from '@/lib/entity-helpers'
 
 type RouteParams = {
@@ -149,8 +148,21 @@ export async function POST(
 
     // データ取得
     const entities = await loadEntities(clientFolderId)
-    const tasks = await loadAllTasks(clientFolderId)
-    const cycles = await loadAllCycles(clientFolderId)
+    const masterData = await loadMasterData(clientFolderId)
+    const issues = masterData?.issues || []
+    const cycles = masterData?.cycles || []
+
+    // issuesをTask形式に変換
+    const tasks: Task[] = issues.map(issue => ({
+      id: issue.id,
+      client_id: issue.client_id,
+      entity_name: issue.entity_name || '',
+      title: issue.title,
+      status: issue.status,
+      date: issue.date || issue.created_at.split('T')[0],
+      created_at: issue.created_at,
+      updated_at: issue.updated_at,
+    }))
 
     // レポート生成
     const reportText = generateReportText(client.name, entities, tasks, cycles)

@@ -4,7 +4,7 @@ import { ApiResponse, Task } from '@/lib/types'
 import { isDriveConfigured } from '@/lib/drive'
 import {
   getClientFolderId,
-  loadAllTasks,
+  loadMasterData,
 } from '@/lib/entity-helpers'
 
 type RouteParams = {
@@ -39,7 +39,20 @@ export async function GET(
       )
     }
 
-    const tasks = await loadAllTasks(clientFolderId)
+    const masterData = await loadMasterData(clientFolderId)
+    const issues = masterData?.issues || []
+
+    // issuesをTask形式に変換
+    const tasks: Task[] = issues.map(issue => ({
+      id: issue.id,
+      client_id: issue.client_id,
+      entity_name: issue.entity_name || '',
+      title: issue.title,
+      status: issue.status,
+      date: issue.date || issue.created_at.split('T')[0],
+      created_at: issue.created_at,
+      updated_at: issue.updated_at,
+    }))
 
     // 日付の降順でソート
     tasks.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())

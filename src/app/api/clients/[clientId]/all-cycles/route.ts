@@ -4,7 +4,7 @@ import { ApiResponse, PdcaCycle } from '@/lib/types'
 import { isDriveConfigured } from '@/lib/drive'
 import {
   getClientFolderId,
-  loadAllCycles,
+  loadMasterData,
 } from '@/lib/entity-helpers'
 
 type RouteParams = {
@@ -39,7 +39,8 @@ export async function GET(
       )
     }
 
-    const cycles = await loadAllCycles(clientFolderId)
+    const masterData = await loadMasterData(clientFolderId)
+    const cycles = masterData?.cycles || []
 
     // サイクル日付の降順でソート
     cycles.sort((a, b) => new Date(b.cycle_date).getTime() - new Date(a.cycle_date).getTime())

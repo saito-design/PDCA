@@ -1,4 +1,4 @@
-import { Client, Entity, Task, PdcaCycle, PdcaIssue } from '@/lib/types'
+import { Client, Entity, PdcaCycle, PdcaIssue } from '@/lib/types'
 import {
   getPdcaFolderId,
   loadJsonFromFolder,
@@ -8,11 +8,6 @@ import {
 
 const CLIENTS_FILENAME = 'clients.json'
 const ENTITIES_FILENAME = 'entities.json'
-const ALL_TASKS_FILENAME = 'all-tasks.json'
-const ALL_CYCLES_FILENAME = 'all-cycles.json'
-const ALL_PDCA_ISSUES_FILENAME = 'all-pdca-issues.json'
-const PDCA_ISSUES_FILENAME = 'pdca-issues.json'
-const PDCA_CYCLES_FILENAME = 'pdca-cycles.json'
 const MASTER_DATA_FILENAME = 'master-data.json'
 
 // マスターデータの型
@@ -130,176 +125,47 @@ export async function saveMasterData(data: MasterData, clientFolderId: string): 
 }
 
 // ========================================
-// まとめJSON操作関数
+// アクション内タスク自動抽出
 // ========================================
 
-// 全タスク読み込み（企業フォルダ直下の all-tasks.json）
-export async function loadAllTasks(clientFolderId: string): Promise<Task[]> {
-  try {
-    const result = await loadJsonFromFolder<Task[]>(ALL_TASKS_FILENAME, clientFolderId)
-    return result?.data || []
-  } catch (error) {
-    console.warn('全タスク読み込みエラー:', error)
-    return []
-  }
+// アクション文字列から【】で囲まれたタスクを抽出
+export function extractTasksFromAction(action: string): string[] {
+  if (!action || !action.includes('【')) return []
+  const matches = action.match(/【([^】]+)】/g) || []
+  return matches.map(m => m.replace(/【|】/g, ''))
 }
 
-// 全タスク保存
-export async function saveAllTasks(tasks: Task[], clientFolderId: string): Promise<void> {
-  await saveJsonToFolder(tasks, ALL_TASKS_FILENAME, clientFolderId)
-}
+// サイクルのアクションから新規タスクを抽出してissuesに追加
+export function extractAndAddTasksFromCycle(
+  masterData: MasterData,
+  cycle: PdcaCycle
+): number {
+  const tasks = extractTasksFromAction(cycle.action)
+  if (tasks.length === 0) return 0
 
-// 全サイクル読み込み（まとめJSONがなければ元のpdca-cycles.jsonから読む）
-export async function loadAllCycles(clientFolderId: string): Promise<PdcaCycle[]> {
-  try {
-    // まずまとめJSONを試す
-    const result = await loadJsonFromFolder<PdcaCycle[]>(ALL_CYCLES_FILENAME, clientFolderId)
-    console.log('loadAllCycles: all-cycles.json result:', {
-      found: !!result,
-      count: result?.data?.length || 0,
-      folderId: clientFolderId
-    })
-    if (result?.data && result.data.length > 0) {
-      return result.data
-    }
-    // なければ元のpdca-cycles.jsonから読む（フォールバック）
-    const fallback = await loadJsonFromFolder<PdcaCycle[]>(PDCA_CYCLES_FILENAME, clientFolderId)
-    console.log('loadAllCycles: pdca-cycles.json fallback:', {
-      found: !!fallback,
-      count: fallback?.data?.length || 0
-    })
-    return fallback?.data || []
-  } catch (error) {
-    console.warn('全サイクル読み込みエラー:', error)
-    // エラー時も元ファイルを試す
-    try {
-      const fallback = await loadJsonFromFolder<PdcaCycle[]>(PDCA_CYCLES_FILENAME, clientFolderId)
-      console.log('loadAllCycles: fallback after error:', { count: fallback?.data?.length || 0 })
-      return fallback?.data || []
-    } catch {
-      return []
+  const existingTitles = new Set(masterData.issues.map(i => i.title))
+  const now = new Date().toISOString()
+  let addedCount = 0
+
+  for (const taskTitle of tasks) {
+    if (!existingTitles.has(taskTitle)) {
+      const newIssue: PdcaIssue & { entity_name?: string; date?: string } = {
+        id: `task-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+        client_id: cycle.client_id,
+        entity_id: cycle.entity_id || '',
+        title: taskTitle,
+        status: 'open',
+        date: cycle.cycle_date,
+        created_at: now,
+        updated_at: now,
+      }
+      masterData.issues.push(newIssue)
+      existingTitles.add(taskTitle)
+      addedCount++
+      console.log(`extractAndAddTasksFromCycle: 新規タスク追加 "${taskTitle}"`)
     }
   }
+
+  return addedCount
 }
 
-// 全サイクル保存
-export async function saveAllCycles(cycles: PdcaCycle[], clientFolderId: string): Promise<void> {
-  await saveJsonToFolder(cycles, ALL_CYCLES_FILENAME, clientFolderId)
-}
-
-// 全PDCAイシュー読み込み（まとめJSONがなければ元のpdca-issues.jsonから読む）
-export async function loadAllIssues(clientFolderId: string): Promise<PdcaIssue[]> {
-  try {
-    // まずまとめJSONを試す
-    const result = await loadJsonFromFolder<PdcaIssue[]>(ALL_PDCA_ISSUES_FILENAME, clientFolderId)
-    console.log('loadAllIssues: all-pdca-issues.json result:', {
-      found: !!result,
-      count: result?.data?.length || 0,
-      folderId: clientFolderId
-    })
-    if (result?.data && result.data.length > 0) {
-      return result.data
-    }
-    // なければ元のpdca-issues.jsonから読む（フォールバック）
-    const fallback = await loadJsonFromFolder<PdcaIssue[]>(PDCA_ISSUES_FILENAME, clientFolderId)
-    console.log('loadAllIssues: pdca-issues.json fallback:', {
-      found: !!fallback,
-      count: fallback?.data?.length || 0
-    })
-    return fallback?.data || []
-  } catch (error) {
-    console.warn('全PDCAイシュー読み込みエラー:', error)
-    // エラー時も元ファイルを試す
-    try {
-      const fallback = await loadJsonFromFolder<PdcaIssue[]>(PDCA_ISSUES_FILENAME, clientFolderId)
-      console.log('loadAllIssues: fallback after error:', { count: fallback?.data?.length || 0 })
-      return fallback?.data || []
-    } catch {
-      return []
-    }
-  }
-}
-
-// 全PDCAイシュー保存
-export async function saveAllIssues(issues: PdcaIssue[], clientFolderId: string): Promise<void> {
-  await saveJsonToFolder(issues, ALL_PDCA_ISSUES_FILENAME, clientFolderId)
-}
-
-// タスクをまとめJSONに追加
-export async function addTaskToAggregate(task: Task, clientFolderId: string): Promise<void> {
-  const allTasks = await loadAllTasks(clientFolderId)
-  allTasks.push(task)
-  await saveAllTasks(allTasks, clientFolderId)
-}
-
-// タスクをまとめJSONで更新
-export async function updateTaskInAggregate(task: Task, clientFolderId: string): Promise<void> {
-  const allTasks = await loadAllTasks(clientFolderId)
-  const idx = allTasks.findIndex(t => t.id === task.id)
-  if (idx !== -1) {
-    allTasks[idx] = task
-  } else {
-    // 見つからない場合は追加
-    allTasks.push(task)
-  }
-  await saveAllTasks(allTasks, clientFolderId)
-}
-
-// タスクをまとめJSONから削除
-export async function removeTaskFromAggregate(taskId: string, clientFolderId: string): Promise<void> {
-  const allTasks = await loadAllTasks(clientFolderId)
-  const filtered = allTasks.filter(t => t.id !== taskId)
-  await saveAllTasks(filtered, clientFolderId)
-}
-
-// サイクルをまとめJSONに追加
-export async function addCycleToAggregate(cycle: PdcaCycle, clientFolderId: string): Promise<void> {
-  const allCycles = await loadAllCycles(clientFolderId)
-  allCycles.push(cycle)
-  await saveAllCycles(allCycles, clientFolderId)
-}
-
-// サイクルをまとめJSONで更新
-export async function updateCycleInAggregate(cycle: PdcaCycle, clientFolderId: string): Promise<void> {
-  const allCycles = await loadAllCycles(clientFolderId)
-  const idx = allCycles.findIndex(c => c.id === cycle.id)
-  if (idx !== -1) {
-    allCycles[idx] = cycle
-  } else {
-    allCycles.push(cycle)
-  }
-  await saveAllCycles(allCycles, clientFolderId)
-}
-
-// サイクルをまとめJSONから削除
-export async function removeCycleFromAggregate(cycleId: string, clientFolderId: string): Promise<void> {
-  const allCycles = await loadAllCycles(clientFolderId)
-  const filtered = allCycles.filter(c => c.id !== cycleId)
-  await saveAllCycles(filtered, clientFolderId)
-}
-
-// PDCAイシューをまとめJSONに追加
-export async function addIssueToAggregate(issue: PdcaIssue, clientFolderId: string): Promise<void> {
-  const allIssues = await loadAllIssues(clientFolderId)
-  allIssues.push(issue)
-  await saveAllIssues(allIssues, clientFolderId)
-}
-
-// PDCAイシューをまとめJSONで更新
-export async function updateIssueInAggregate(issue: PdcaIssue, clientFolderId: string): Promise<void> {
-  const allIssues = await loadAllIssues(clientFolderId)
-  const idx = allIssues.findIndex(i => i.id === issue.id)
-  if (idx !== -1) {
-    allIssues[idx] = issue
-  } else {
-    allIssues.push(issue)
-  }
-  await saveAllIssues(allIssues, clientFolderId)
-}
-
-// PDCAイシューをまとめJSONから削除
-export async function removeIssueFromAggregate(issueId: string, clientFolderId: string): Promise<void> {
-  const allIssues = await loadAllIssues(clientFolderId)
-  const filtered = allIssues.filter(i => i.id !== issueId)
-  await saveAllIssues(filtered, clientFolderId)
-}

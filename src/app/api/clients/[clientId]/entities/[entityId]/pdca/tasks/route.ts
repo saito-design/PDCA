@@ -1,34 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
 import { ApiResponse, PdcaIssue, PdcaStatus } from '@/lib/types'
-import {
-  isDriveConfigured,
-  loadJsonFromFolder,
-  saveJsonToFolder,
-} from '@/lib/drive'
+import { isDriveConfigured } from '@/lib/drive'
 import {
   getClientFolderId,
-  addIssueToAggregate,
-  updateIssueInAggregate,
+  loadMasterData,
+  saveMasterData,
 } from '@/lib/entity-helpers'
-
-const ISSUES_FILENAME = 'pdca-issues.json'
-
-// Google Driveからタスクを読み込む
-async function loadTasks(clientFolderId: string): Promise<PdcaIssue[]> {
-  try {
-    const result = await loadJsonFromFolder<PdcaIssue[]>(ISSUES_FILENAME, clientFolderId)
-    return result?.data || []
-  } catch (error) {
-    console.warn('タスク読み込みエラー:', error)
-    return []
-  }
-}
-
-// Google Driveにタスクを保存
-async function saveTasks(tasks: PdcaIssue[], clientFolderId: string): Promise<void> {
-  await saveJsonToFolder(tasks, ISSUES_FILENAME, clientFolderId)
-}
 
 type RouteParams = {
   params: Promise<{ clientId: string; entityId: string }>
@@ -66,7 +44,8 @@ export async function GET(
       )
     }
 
-    const allTasks = await loadTasks(clientFolderId)
+    const masterData = await loadMasterData(clientFolderId)
+    const allTasks = masterData?.issues || []
     const filtered = allTasks.filter(
       (t) => t.client_id === clientId && t.entity_id === entityId
     )
@@ -146,12 +125,14 @@ export async function POST(
       updated_at: now,
     }
 
-    const allTasks = await loadTasks(clientFolderId)
-    allTasks.push(newTask)
-    await saveTasks(allTasks, clientFolderId)
-
-    // まとめJSONにも追加
-    await addIssueToAggregate(newTask, clientFolderId)
+    const masterData = await loadMasterData(clientFolderId) || {
+      version: '1.0',
+      updated_at: '',
+      issues: [],
+      cycles: [],
+    }
+    masterData.issues.push(newTask)
+    await saveMasterData(masterData, clientFolderId)
 
     return NextResponse.json({
       success: true,
@@ -221,8 +202,15 @@ export async function PATCH(
       )
     }
 
-    const allTasks = await loadTasks(clientFolderId)
-    const idx = allTasks.findIndex(
+    const masterData = await loadMasterData(clientFolderId)
+    if (!masterData) {
+      return NextResponse.json(
+        { success: false, error: 'マスターデータがありません' },
+        { status: 404 }
+      )
+    }
+
+    const idx = masterData.issues.findIndex(
       (t) => t.id === id && t.client_id === clientId && t.entity_id === entityId
     )
 
@@ -234,18 +222,15 @@ export async function PATCH(
     }
 
     // 更新
-    if (title !== undefined) allTasks[idx].title = title
-    if (status !== undefined) allTasks[idx].status = status as PdcaStatus
-    allTasks[idx].updated_at = new Date().toISOString()
+    if (title !== undefined) masterData.issues[idx].title = title
+    if (status !== undefined) masterData.issues[idx].status = status as PdcaStatus
+    masterData.issues[idx].updated_at = new Date().toISOString()
 
-    await saveTasks(allTasks, clientFolderId)
-
-    // まとめJSONも更新
-    await updateIssueInAggregate(allTasks[idx], clientFolderId)
+    await saveMasterData(masterData, clientFolderId)
 
     return NextResponse.json({
       success: true,
-      data: allTasks[idx],
+      data: masterData.issues[idx],
     })
   } catch (error) {
     if (error instanceof Error && error.message === 'Unauthorized') {

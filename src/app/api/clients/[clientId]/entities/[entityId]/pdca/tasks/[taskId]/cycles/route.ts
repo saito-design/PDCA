@@ -1,35 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
 import { ApiResponse, PdcaCycle, PdcaStatus } from '@/lib/types'
-import {
-  isDriveConfigured,
-  loadJsonFromFolder,
-  saveJsonToFolder,
-} from '@/lib/drive'
+import { isDriveConfigured } from '@/lib/drive'
 import {
   getClientFolderId,
-  getEntityFolderId,
-  addCycleToAggregate,
-  updateCycleInAggregate,
+  loadMasterData,
+  saveMasterData,
+  extractAndAddTasksFromCycle,
 } from '@/lib/entity-helpers'
-
-const CYCLES_FILENAME = 'cycles.json'
-
-// 部署フォルダからサイクルを読み込む
-async function loadCycles(entityFolderId: string): Promise<PdcaCycle[]> {
-  try {
-    const result = await loadJsonFromFolder<PdcaCycle[]>(CYCLES_FILENAME, entityFolderId)
-    return result?.data || []
-  } catch (error) {
-    console.warn('サイクル読み込みエラー:', error)
-    return []
-  }
-}
-
-// 部署フォルダにサイクルを保存
-async function saveCycles(cycles: PdcaCycle[], entityFolderId: string): Promise<void> {
-  await saveJsonToFolder(cycles, CYCLES_FILENAME, entityFolderId)
-}
 
 type RouteParams = {
   params: Promise<{ clientId: string; entityId: string; taskId: string }>
@@ -67,15 +45,8 @@ export async function GET(
       )
     }
 
-    const entityFolderId = await getEntityFolderId(clientFolderId, entityId)
-    if (!entityFolderId) {
-      return NextResponse.json(
-        { success: false, error: '部署が見つかりません' },
-        { status: 404 }
-      )
-    }
-
-    const allCycles = await loadCycles(entityFolderId)
+    const masterData = await loadMasterData(clientFolderId)
+    const allCycles = masterData?.cycles || []
     const filtered = allCycles.filter((c) => c.issue_id === taskId)
 
     // サイクル日付の降順でソート
@@ -150,14 +121,6 @@ export async function POST(
       )
     }
 
-    const entityFolderId = await getEntityFolderId(clientFolderId, entityId)
-    if (!entityFolderId) {
-      return NextResponse.json(
-        { success: false, error: '部署が見つかりません' },
-        { status: 404 }
-      )
-    }
-
     const newCycle: PdcaCycle = {
       id: `cycle-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       client_id: clientId,
@@ -173,12 +136,18 @@ export async function POST(
       updated_at: new Date().toISOString(),
     }
 
-    const allCycles = await loadCycles(entityFolderId)
-    allCycles.push(newCycle)
-    await saveCycles(allCycles, entityFolderId)
+    const masterData = await loadMasterData(clientFolderId) || {
+      version: '1.0',
+      updated_at: '',
+      issues: [],
+      cycles: [],
+    }
+    masterData.cycles.push(newCycle)
 
-    // まとめJSONにも追加
-    await addCycleToAggregate(newCycle, clientFolderId)
+    // アクション内の【】タスクを自動抽出してissuesに追加
+    extractAndAddTasksFromCycle(masterData, newCycle)
+
+    await saveMasterData(masterData, clientFolderId)
 
     return NextResponse.json({
       success: true,
@@ -241,16 +210,15 @@ export async function PATCH(
       )
     }
 
-    const entityFolderId = await getEntityFolderId(clientFolderId, entityId)
-    if (!entityFolderId) {
+    const masterData = await loadMasterData(clientFolderId)
+    if (!masterData) {
       return NextResponse.json(
-        { success: false, error: '部署が見つかりません' },
+        { success: false, error: 'マスターデータがありません' },
         { status: 404 }
       )
     }
 
-    const allCycles = await loadCycles(entityFolderId)
-    const idx = allCycles.findIndex((c) => c.id === id && c.issue_id === taskId)
+    const idx = masterData.cycles.findIndex((c) => c.id === id && c.issue_id === taskId)
 
     if (idx === -1) {
       return NextResponse.json(
@@ -260,21 +228,23 @@ export async function PATCH(
     }
 
     // 更新
-    if (situation !== undefined) allCycles[idx].situation = situation
-    if (issue !== undefined) allCycles[idx].issue = issue
-    if (action !== undefined) allCycles[idx].action = action
-    if (target !== undefined) allCycles[idx].target = target
-    if (status !== undefined) allCycles[idx].status = status
-    allCycles[idx].updated_at = new Date().toISOString()
+    if (situation !== undefined) masterData.cycles[idx].situation = situation
+    if (issue !== undefined) masterData.cycles[idx].issue = issue
+    if (action !== undefined) masterData.cycles[idx].action = action
+    if (target !== undefined) masterData.cycles[idx].target = target
+    if (status !== undefined) masterData.cycles[idx].status = status
+    masterData.cycles[idx].updated_at = new Date().toISOString()
 
-    await saveCycles(allCycles, entityFolderId)
+    // アクションが更新された場合、新規タスクを抽出
+    if (action !== undefined) {
+      extractAndAddTasksFromCycle(masterData, masterData.cycles[idx])
+    }
 
-    // まとめJSONも更新
-    await updateCycleInAggregate(allCycles[idx], clientFolderId)
+    await saveMasterData(masterData, clientFolderId)
 
     return NextResponse.json({
       success: true,
-      data: allCycles[idx],
+      data: masterData.cycles[idx],
     })
   } catch (error) {
     if (error instanceof Error && error.message === 'Unauthorized') {

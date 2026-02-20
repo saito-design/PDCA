@@ -4,7 +4,7 @@ import { ApiResponse, PdcaIssue } from '@/lib/types'
 import { isDriveConfigured } from '@/lib/drive'
 import {
   getClientFolderId,
-  loadAllIssues,
+  loadMasterData,
 } from '@/lib/entity-helpers'
 
 type RouteParams = {
@@ -39,7 +39,8 @@ export async function GET(
       )
     }
 
-    const issues = await loadAllIssues(clientFolderId)
+    const masterData = await loadMasterData(clientFolderId)
+    const issues = masterData?.issues || []
 
     // 更新日の降順でソート
     issues.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())

@@ -1,35 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
 import { ApiResponse, Task, PdcaStatus } from '@/lib/types'
-import {
-  isDriveConfigured,
-  loadJsonFromFolder,
-  saveJsonToFolder,
-} from '@/lib/drive'
+import { isDriveConfigured } from '@/lib/drive'
 import {
   getClientFolderId,
-  getEntityFolderId,
-  updateTaskInAggregate,
-  removeTaskFromAggregate,
+  loadMasterData,
+  saveMasterData,
+  loadEntities,
 } from '@/lib/entity-helpers'
-
-const TASKS_FILENAME = 'tasks.json'
-
-// 部署フォルダからタスクを読み込む
-async function loadTasks(entityFolderId: string): Promise<Task[]> {
-  try {
-    const result = await loadJsonFromFolder<Task[]>(TASKS_FILENAME, entityFolderId)
-    return result?.data || []
-  } catch (error) {
-    console.warn('タスク読み込みエラー:', error)
-    return []
-  }
-}
-
-// 部署フォルダにタスクを保存
-async function saveTasks(tasks: Task[], entityFolderId: string): Promise<void> {
-  await saveJsonToFolder(tasks, TASKS_FILENAME, entityFolderId)
-}
 
 type RouteParams = {
   params: Promise<{ clientId: string; entityId: string; taskId: string }>
@@ -67,16 +45,15 @@ export async function PATCH(
       )
     }
 
-    const entityFolderId = await getEntityFolderId(clientFolderId, entityId)
-    if (!entityFolderId) {
+    const masterData = await loadMasterData(clientFolderId)
+    if (!masterData) {
       return NextResponse.json(
-        { success: false, error: '部署が見つかりません' },
+        { success: false, error: 'マスターデータがありません' },
         { status: 404 }
       )
     }
 
-    const tasks = await loadTasks(entityFolderId)
-    const idx = tasks.findIndex((t) => t.id === taskId)
+    const idx = masterData.issues.findIndex((i) => i.id === taskId && i.entity_id === entityId)
 
     if (idx === -1) {
       return NextResponse.json(
@@ -94,16 +71,27 @@ export async function PATCH(
     }
 
     // 更新
-    if (body.title !== undefined) tasks[idx].title = body.title
-    if (body.status !== undefined) tasks[idx].status = body.status as PdcaStatus
-    tasks[idx].updated_at = new Date().toISOString()
+    if (body.title !== undefined) masterData.issues[idx].title = body.title
+    if (body.status !== undefined) masterData.issues[idx].status = body.status as PdcaStatus
+    masterData.issues[idx].updated_at = new Date().toISOString()
 
-    await saveTasks(tasks, entityFolderId)
+    await saveMasterData(masterData, clientFolderId)
 
-    // まとめJSONも更新
-    await updateTaskInAggregate(tasks[idx], clientFolderId)
+    // Task形式で返す
+    const entities = await loadEntities(clientFolderId)
+    const entity = entities.find(e => e.id === entityId)
+    const updatedTask: Task = {
+      id: masterData.issues[idx].id,
+      client_id: masterData.issues[idx].client_id,
+      entity_name: masterData.issues[idx].entity_name || entity?.name || '',
+      title: masterData.issues[idx].title,
+      status: masterData.issues[idx].status,
+      date: masterData.issues[idx].date || masterData.issues[idx].created_at.split('T')[0],
+      created_at: masterData.issues[idx].created_at,
+      updated_at: masterData.issues[idx].updated_at,
+    }
 
-    return NextResponse.json({ success: true, data: tasks[idx] })
+    return NextResponse.json({ success: true, data: updatedTask })
   } catch (error) {
     if (error instanceof Error && error.message === 'Unauthorized') {
       return NextResponse.json(
@@ -150,16 +138,15 @@ export async function DELETE(
       )
     }
 
-    const entityFolderId = await getEntityFolderId(clientFolderId, entityId)
-    if (!entityFolderId) {
+    const masterData = await loadMasterData(clientFolderId)
+    if (!masterData) {
       return NextResponse.json(
-        { success: false, error: '部署が見つかりません' },
+        { success: false, error: 'マスターデータがありません' },
         { status: 404 }
       )
     }
 
-    const tasks = await loadTasks(entityFolderId)
-    const idx = tasks.findIndex((t) => t.id === taskId)
+    const idx = masterData.issues.findIndex((i) => i.id === taskId && i.entity_id === entityId)
 
     if (idx === -1) {
       return NextResponse.json(
@@ -168,12 +155,8 @@ export async function DELETE(
       )
     }
 
-    const deletedTaskId = tasks[idx].id
-    tasks.splice(idx, 1)
-    await saveTasks(tasks, entityFolderId)
-
-    // まとめJSONからも削除
-    await removeTaskFromAggregate(deletedTaskId, clientFolderId)
+    masterData.issues.splice(idx, 1)
+    await saveMasterData(masterData, clientFolderId)
 
     return NextResponse.json({ success: true, data: null })
   } catch (error) {

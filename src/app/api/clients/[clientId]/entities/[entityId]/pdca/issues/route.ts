@@ -1,50 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { ApiResponse, PdcaIssue, PdcaStatus, Client } from '@/lib/types'
+import { ApiResponse, PdcaIssue, PdcaStatus } from '@/lib/types'
+import { isDriveConfigured } from '@/lib/drive'
 import {
-  isDriveConfigured,
-  getPdcaFolderId,
-  loadJsonFromFolder,
-  saveJsonToFolder,
-} from '@/lib/drive'
-
-const CLIENTS_FILENAME = 'clients.json'
-const ISSUES_FILENAME = 'pdca-issues.json'
-
-// Google Driveからクライアント一覧を読み込む
-async function loadClients(): Promise<Client[]> {
-  try {
-    const pdcaFolderId = getPdcaFolderId()
-    const result = await loadJsonFromFolder<Client[]>(CLIENTS_FILENAME, pdcaFolderId)
-    return result?.data || []
-  } catch (error) {
-    console.warn('クライアント読み込みエラー:', error)
-    return []
-  }
-}
-
-// 企業のdrive_folder_idを取得
-async function getClientFolderId(clientId: string): Promise<string | null> {
-  const clients = await loadClients()
-  const client = clients.find(c => c.id === clientId)
-  return client?.drive_folder_id || null
-}
-
-// Google Driveからイシューを読み込む
-async function loadIssues(clientFolderId: string): Promise<PdcaIssue[]> {
-  try {
-    const result = await loadJsonFromFolder<PdcaIssue[]>(ISSUES_FILENAME, clientFolderId)
-    return result?.data || []
-  } catch (error) {
-    console.warn('イシュー読み込みエラー:', error)
-    return []
-  }
-}
-
-// Google Driveにイシューを保存
-async function saveIssues(issues: PdcaIssue[], clientFolderId: string): Promise<void> {
-  await saveJsonToFolder(issues, ISSUES_FILENAME, clientFolderId)
-}
+  getClientFolderId,
+  loadMasterData,
+  saveMasterData,
+  MasterData,
+} from '@/lib/entity-helpers'
 
 type RouteParams = {
   params: Promise<{ clientId: string; entityId: string }>
@@ -82,7 +45,8 @@ export async function GET(
       )
     }
 
-    const allIssues = await loadIssues(clientFolderId)
+    const masterData = await loadMasterData(clientFolderId)
+    const allIssues = masterData?.issues || []
     const filtered = allIssues.filter(
       (i) => i.client_id === clientId && i.entity_id === entityId
     )
@@ -162,9 +126,14 @@ export async function POST(
       updated_at: now,
     }
 
-    const allIssues = await loadIssues(clientFolderId)
-    allIssues.push(newIssue)
-    await saveIssues(allIssues, clientFolderId)
+    const masterData = await loadMasterData(clientFolderId) || {
+      version: '1.0',
+      updated_at: '',
+      issues: [],
+      cycles: [],
+    }
+    masterData.issues.push(newIssue)
+    await saveMasterData(masterData, clientFolderId)
 
     return NextResponse.json({
       success: true,
@@ -234,8 +203,15 @@ export async function PATCH(
       )
     }
 
-    const allIssues = await loadIssues(clientFolderId)
-    const idx = allIssues.findIndex(
+    const masterData = await loadMasterData(clientFolderId)
+    if (!masterData) {
+      return NextResponse.json(
+        { success: false, error: 'マスターデータがありません' },
+        { status: 404 }
+      )
+    }
+
+    const idx = masterData.issues.findIndex(
       (i) => i.id === id && i.client_id === clientId && i.entity_id === entityId
     )
 
@@ -247,15 +223,15 @@ export async function PATCH(
     }
 
     // 更新
-    if (title !== undefined) allIssues[idx].title = title
-    if (status !== undefined) allIssues[idx].status = status as PdcaStatus
-    allIssues[idx].updated_at = new Date().toISOString()
+    if (title !== undefined) masterData.issues[idx].title = title
+    if (status !== undefined) masterData.issues[idx].status = status as PdcaStatus
+    masterData.issues[idx].updated_at = new Date().toISOString()
 
-    await saveIssues(allIssues, clientFolderId)
+    await saveMasterData(masterData, clientFolderId)
 
     return NextResponse.json({
       success: true,
-      data: allIssues[idx],
+      data: masterData.issues[idx],
     })
   } catch (error) {
     if (error instanceof Error && error.message === 'Unauthorized') {

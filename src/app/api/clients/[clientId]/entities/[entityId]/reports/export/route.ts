@@ -5,8 +5,7 @@ import { ApiResponse, PdcaIssue, PdcaCycle, Entity, Client } from '@/lib/types'
 import {
   loadClients,
   loadEntities,
-  loadAllIssues,
-  loadAllCycles,
+  loadMasterData,
   getClientFolderId,
 } from '@/lib/entity-helpers'
 
@@ -139,9 +138,10 @@ export async function POST(
       )
     }
 
-    // Driveからイシューとサイクルを取得
-    const allIssues = await loadAllIssues(clientFolderId)
-    const allCycles = await loadAllCycles(clientFolderId)
+    // master-data.jsonからイシューとサイクルを取得
+    const masterData = await loadMasterData(clientFolderId)
+    const allIssues = masterData?.issues || []
+    const allCycles = masterData?.cycles || []
 
     // デバッグログ
     console.log('Export Debug:', {

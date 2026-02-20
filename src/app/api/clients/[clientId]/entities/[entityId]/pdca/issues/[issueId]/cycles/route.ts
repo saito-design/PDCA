@@ -1,50 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { ApiResponse, PdcaCycle, PdcaStatus, Client } from '@/lib/types'
+import { ApiResponse, PdcaCycle, PdcaStatus } from '@/lib/types'
+import { isDriveConfigured } from '@/lib/drive'
 import {
-  isDriveConfigured,
-  getPdcaFolderId,
-  loadJsonFromFolder,
-  saveJsonToFolder,
-} from '@/lib/drive'
-
-const CLIENTS_FILENAME = 'clients.json'
-const CYCLES_FILENAME = 'pdca-cycles.json'
-
-// Google Driveからクライアント一覧を読み込む
-async function loadClients(): Promise<Client[]> {
-  try {
-    const pdcaFolderId = getPdcaFolderId()
-    const result = await loadJsonFromFolder<Client[]>(CLIENTS_FILENAME, pdcaFolderId)
-    return result?.data || []
-  } catch (error) {
-    console.warn('クライアント読み込みエラー:', error)
-    return []
-  }
-}
-
-// 企業のdrive_folder_idを取得
-async function getClientFolderId(clientId: string): Promise<string | null> {
-  const clients = await loadClients()
-  const client = clients.find(c => c.id === clientId)
-  return client?.drive_folder_id || null
-}
-
-// Google Driveからサイクルを読み込む
-async function loadCycles(clientFolderId: string): Promise<PdcaCycle[]> {
-  try {
-    const result = await loadJsonFromFolder<PdcaCycle[]>(CYCLES_FILENAME, clientFolderId)
-    return result?.data || []
-  } catch (error) {
-    console.warn('サイクル読み込みエラー:', error)
-    return []
-  }
-}
-
-// Google Driveにサイクルを保存
-async function saveCycles(cycles: PdcaCycle[], clientFolderId: string): Promise<void> {
-  await saveJsonToFolder(cycles, CYCLES_FILENAME, clientFolderId)
-}
+  getClientFolderId,
+  loadMasterData,
+  saveMasterData,
+  extractAndAddTasksFromCycle,
+} from '@/lib/entity-helpers'
 
 type RouteParams = {
   params: Promise<{ clientId: string; entityId: string; issueId: string }>
@@ -82,7 +45,8 @@ export async function GET(
       )
     }
 
-    const allCycles = await loadCycles(clientFolderId)
+    const masterData = await loadMasterData(clientFolderId)
+    const allCycles = masterData?.cycles || []
     const filtered = allCycles.filter((c) => c.issue_id === issueId)
 
     // サイクル日付の降順でソート
@@ -149,9 +113,12 @@ export async function POST(
       )
     }
 
+    const { entityId } = await context.params
+
     const newCycle: PdcaCycle = {
       id: `cycle-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       client_id: clientId,
+      entity_id: entityId,
       issue_id: issueId,
       cycle_date,
       situation: situation || '',
@@ -171,9 +138,18 @@ export async function POST(
       )
     }
 
-    const allCycles = await loadCycles(clientFolderId)
-    allCycles.push(newCycle)
-    await saveCycles(allCycles, clientFolderId)
+    const masterData = await loadMasterData(clientFolderId) || {
+      version: '1.0',
+      updated_at: '',
+      issues: [],
+      cycles: [],
+    }
+    masterData.cycles.push(newCycle)
+
+    // アクション内の【】タスクを自動抽出してissuesに追加
+    extractAndAddTasksFromCycle(masterData, newCycle)
+
+    await saveMasterData(masterData, clientFolderId)
 
     return NextResponse.json({
       success: true,
@@ -236,8 +212,15 @@ export async function PATCH(
       )
     }
 
-    const allCycles = await loadCycles(clientFolderId)
-    const idx = allCycles.findIndex((c) => c.id === id && c.issue_id === issueId)
+    const masterData = await loadMasterData(clientFolderId)
+    if (!masterData) {
+      return NextResponse.json(
+        { success: false, error: 'マスターデータがありません' },
+        { status: 404 }
+      )
+    }
+
+    const idx = masterData.cycles.findIndex((c) => c.id === id && c.issue_id === issueId)
 
     if (idx === -1) {
       return NextResponse.json(
@@ -247,18 +230,23 @@ export async function PATCH(
     }
 
     // 更新
-    if (situation !== undefined) allCycles[idx].situation = situation
-    if (issue !== undefined) allCycles[idx].issue = issue
-    if (action !== undefined) allCycles[idx].action = action
-    if (target !== undefined) allCycles[idx].target = target
-    if (status !== undefined) allCycles[idx].status = status
-    allCycles[idx].updated_at = new Date().toISOString()
+    if (situation !== undefined) masterData.cycles[idx].situation = situation
+    if (issue !== undefined) masterData.cycles[idx].issue = issue
+    if (action !== undefined) masterData.cycles[idx].action = action
+    if (target !== undefined) masterData.cycles[idx].target = target
+    if (status !== undefined) masterData.cycles[idx].status = status
+    masterData.cycles[idx].updated_at = new Date().toISOString()
 
-    await saveCycles(allCycles, clientFolderId)
+    // アクションが更新された場合、新規タスクを抽出
+    if (action !== undefined) {
+      extractAndAddTasksFromCycle(masterData, masterData.cycles[idx])
+    }
+
+    await saveMasterData(masterData, clientFolderId)
 
     return NextResponse.json({
       success: true,
-      data: allCycles[idx],
+      data: masterData.cycles[idx],
     })
   } catch (error) {
     if (error instanceof Error && error.message === 'Unauthorized') {
