@@ -311,6 +311,13 @@ export function getPdcaFolderId(): string {
 }
 
 /**
+ * Get Drive client for direct API access.
+ */
+export function getDriveClient() {
+  return getDrive()
+}
+
+/**
  * Deletes a file or folder by ID.
  */
 export async function deleteFile(fileId: string): Promise<void> {
