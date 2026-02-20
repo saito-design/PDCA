@@ -143,9 +143,18 @@ export async function POST(
     const allIssues = await loadAllIssues(clientFolderId)
     const allCycles = await loadAllCycles(clientFolderId)
 
-    // 部署でフィルタリング
+    // デバッグログ
+    console.log('Export Debug:', {
+      entityId,
+      entityName: entity.name,
+      totalIssues: allIssues.length,
+      totalCycles: allCycles.length,
+      issueEntityIds: allIssues.map(i => ({ id: i.id, entity_id: i.entity_id, title: i.title })).slice(0, 5),
+    })
+
+    // 部署でフィルタリング（entity_idがない場合はclient_idのみでフィルタ）
     const filteredIssues = allIssues.filter(
-      i => i.entity_id === entityId
+      i => i.entity_id === entityId || (!i.entity_id && i.client_id === clientId)
     )
 
     const issuesWithCycles = filteredIssues.map(issue => ({
