@@ -117,17 +117,27 @@ export async function loadAllCycles(clientFolderId: string): Promise<PdcaCycle[]
   try {
     // まずまとめJSONを試す
     const result = await loadJsonFromFolder<PdcaCycle[]>(ALL_CYCLES_FILENAME, clientFolderId)
+    console.log('loadAllCycles: all-cycles.json result:', {
+      found: !!result,
+      count: result?.data?.length || 0,
+      folderId: clientFolderId
+    })
     if (result?.data && result.data.length > 0) {
       return result.data
     }
     // なければ元のpdca-cycles.jsonから読む（フォールバック）
     const fallback = await loadJsonFromFolder<PdcaCycle[]>(PDCA_CYCLES_FILENAME, clientFolderId)
+    console.log('loadAllCycles: pdca-cycles.json fallback:', {
+      found: !!fallback,
+      count: fallback?.data?.length || 0
+    })
     return fallback?.data || []
   } catch (error) {
     console.warn('全サイクル読み込みエラー:', error)
     // エラー時も元ファイルを試す
     try {
       const fallback = await loadJsonFromFolder<PdcaCycle[]>(PDCA_CYCLES_FILENAME, clientFolderId)
+      console.log('loadAllCycles: fallback after error:', { count: fallback?.data?.length || 0 })
       return fallback?.data || []
     } catch {
       return []
@@ -145,17 +155,27 @@ export async function loadAllIssues(clientFolderId: string): Promise<PdcaIssue[]
   try {
     // まずまとめJSONを試す
     const result = await loadJsonFromFolder<PdcaIssue[]>(ALL_PDCA_ISSUES_FILENAME, clientFolderId)
+    console.log('loadAllIssues: all-pdca-issues.json result:', {
+      found: !!result,
+      count: result?.data?.length || 0,
+      folderId: clientFolderId
+    })
     if (result?.data && result.data.length > 0) {
       return result.data
     }
     // なければ元のpdca-issues.jsonから読む（フォールバック）
     const fallback = await loadJsonFromFolder<PdcaIssue[]>(PDCA_ISSUES_FILENAME, clientFolderId)
+    console.log('loadAllIssues: pdca-issues.json fallback:', {
+      found: !!fallback,
+      count: fallback?.data?.length || 0
+    })
     return fallback?.data || []
   } catch (error) {
     console.warn('全PDCAイシュー読み込みエラー:', error)
     // エラー時も元ファイルを試す
     try {
       const fallback = await loadJsonFromFolder<PdcaIssue[]>(PDCA_ISSUES_FILENAME, clientFolderId)
+      console.log('loadAllIssues: fallback after error:', { count: fallback?.data?.length || 0 })
       return fallback?.data || []
     } catch {
       return []
