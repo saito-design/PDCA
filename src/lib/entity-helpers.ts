@@ -11,6 +11,8 @@ const ENTITIES_FILENAME = 'entities.json'
 const ALL_TASKS_FILENAME = 'all-tasks.json'
 const ALL_CYCLES_FILENAME = 'all-cycles.json'
 const ALL_PDCA_ISSUES_FILENAME = 'all-pdca-issues.json'
+const PDCA_ISSUES_FILENAME = 'pdca-issues.json'
+const PDCA_CYCLES_FILENAME = 'pdca-cycles.json'
 
 // Google Driveからクライアント一覧を読み込む
 export async function loadClients(): Promise<Client[]> {
@@ -110,14 +112,26 @@ export async function saveAllTasks(tasks: Task[], clientFolderId: string): Promi
   await saveJsonToFolder(tasks, ALL_TASKS_FILENAME, clientFolderId)
 }
 
-// 全サイクル読み込み
+// 全サイクル読み込み（まとめJSONがなければ元のpdca-cycles.jsonから読む）
 export async function loadAllCycles(clientFolderId: string): Promise<PdcaCycle[]> {
   try {
+    // まずまとめJSONを試す
     const result = await loadJsonFromFolder<PdcaCycle[]>(ALL_CYCLES_FILENAME, clientFolderId)
-    return result?.data || []
+    if (result?.data && result.data.length > 0) {
+      return result.data
+    }
+    // なければ元のpdca-cycles.jsonから読む（フォールバック）
+    const fallback = await loadJsonFromFolder<PdcaCycle[]>(PDCA_CYCLES_FILENAME, clientFolderId)
+    return fallback?.data || []
   } catch (error) {
     console.warn('全サイクル読み込みエラー:', error)
-    return []
+    // エラー時も元ファイルを試す
+    try {
+      const fallback = await loadJsonFromFolder<PdcaCycle[]>(PDCA_CYCLES_FILENAME, clientFolderId)
+      return fallback?.data || []
+    } catch {
+      return []
+    }
   }
 }
 
@@ -126,14 +140,26 @@ export async function saveAllCycles(cycles: PdcaCycle[], clientFolderId: string)
   await saveJsonToFolder(cycles, ALL_CYCLES_FILENAME, clientFolderId)
 }
 
-// 全PDCAイシュー読み込み
+// 全PDCAイシュー読み込み（まとめJSONがなければ元のpdca-issues.jsonから読む）
 export async function loadAllIssues(clientFolderId: string): Promise<PdcaIssue[]> {
   try {
+    // まずまとめJSONを試す
     const result = await loadJsonFromFolder<PdcaIssue[]>(ALL_PDCA_ISSUES_FILENAME, clientFolderId)
-    return result?.data || []
+    if (result?.data && result.data.length > 0) {
+      return result.data
+    }
+    // なければ元のpdca-issues.jsonから読む（フォールバック）
+    const fallback = await loadJsonFromFolder<PdcaIssue[]>(PDCA_ISSUES_FILENAME, clientFolderId)
+    return fallback?.data || []
   } catch (error) {
     console.warn('全PDCAイシュー読み込みエラー:', error)
-    return []
+    // エラー時も元ファイルを試す
+    try {
+      const fallback = await loadJsonFromFolder<PdcaIssue[]>(PDCA_ISSUES_FILENAME, clientFolderId)
+      return fallback?.data || []
+    } catch {
+      return []
+    }
   }
 }
 
