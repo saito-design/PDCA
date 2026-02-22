@@ -56,16 +56,21 @@ export async function GET(
     // 基本情報を取得
     const info = getClientDataInfo(clientId, driveFolderId)
 
-    // Driveの場合、実際にファイルが存在するか確認
-    if (driveFolderId && info.dataSourceType === 'drive') {
+    // Driveフォルダがある場合、実際にファイルが存在するか確認（常に優先）
+    if (driveFolderId) {
       const actualFile = await findDataFileInDrive(driveFolderId)
       if (actualFile) {
         info.fileName = actualFile
         info.hasDataSource = true
+        info.dataSourceType = 'drive'
+        info.driveFolderId = driveFolderId
+        info.filePath = null
+        info.folderPath = null
       } else {
-        // ファイルが見つからない場合
+        // Driveにファイルがない場合
         info.fileName = null
         info.hasDataSource = false
+        info.dataSourceType = null
       }
     }
 

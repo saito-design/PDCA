@@ -13,16 +13,10 @@ interface DataSource {
   type: 'excel' | 'drive'
 }
 
+// ローカルExcelデータソースは廃止（全てDrive JSONに移行）
+// Excel → Python → CSV → JSON → Drive の流れで統一
 const DATA_SOURCES: Record<string, DataSource> = {
-  'junestory': {
-    path: 'C:/Users/yasuh/OneDrive - 株式会社日本コンサルタントグループ　/MyDocuments/00_Junes/2026年10月期_データ/POS分析_ジュネストリー様2.xlsm',
-    folder: 'C:/Users/yasuh/OneDrive - 株式会社日本コンサルタントグループ　/MyDocuments/00_Junes',
-    sheets: {
-      posSales: 'POS売上',
-      posItems: 'POS単品',
-    },
-    type: 'excel',
-  },
+  // 空（全企業がDrive JSONを使用）
 }
 
 // Google Driveベースのデータソース（unified_data.json）を持つクライアント
