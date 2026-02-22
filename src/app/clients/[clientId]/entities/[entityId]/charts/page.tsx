@@ -33,11 +33,10 @@ export default function ChartStudioPage({ params }: PageProps) {
   const [client, setClient] = useState<Client | null>(null)
   const [entity, setEntity] = useState<Entity | null>(null)
   const [chartsWithMetrics, setChartsWithMetrics] = useState<ChartWithMetrics[]>([])
-  const [globalFilters, setGlobalFilters] = useState<GlobalFilters>({ store: '全店', lastN: 6 })
+  const [globalFilters, setGlobalFilters] = useState<GlobalFilters>({ lastN: 6 })
   const [loading, setLoading] = useState(true)
 
   // 実データ
-  const [stores, setStores] = useState<string[]>([])
   const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([])
 
   // 現在のカラム設定からメトリクスを生成
@@ -106,17 +105,6 @@ export default function ChartStudioPage({ params }: PageProps) {
           setChartsWithMetrics(loadedCharts)
         }
 
-        // 店舗一覧を取得
-        try {
-          const storesRes = await fetch(`/api/clients/${clientId}/data?type=stores`)
-          const storesData = await storesRes.json()
-          if (storesData.success) {
-            setStores(storesData.data)
-          }
-        } catch {
-          console.warn('店舗一覧取得エラー')
-        }
-
         // 月別データを取得（部署用APIを優先）
         try {
           // まず部署用chart-data APIを試す
@@ -146,25 +134,9 @@ export default function ChartStudioPage({ params }: PageProps) {
     fetchData()
   }, [router, clientId, entityId])
 
-  // 店舗フィルター変更時にデータ再取得
-  useEffect(() => {
-    const fetchMonthlyData = async () => {
-      try {
-        const storeParam = globalFilters.store !== '全店' ? `&store=${encodeURIComponent(globalFilters.store)}` : ''
-        const monthlyRes = await fetch(`/api/clients/${clientId}/data?type=monthly${storeParam}`)
-        const monthlyDataRes = await monthlyRes.json()
-        if (monthlyDataRes.success) {
-          setMonthlyData(monthlyDataRes.data)
-        }
-      } catch {
-        console.warn('月別データ取得エラー')
-      }
-    }
-
-    if (!loading) {
-      fetchMonthlyData()
-    }
-  }, [clientId, globalFilters.store, loading])
+  // 部門データ再取得（entity変更時）
+  // 初期データ取得と同じロジック使用のためここでは何もしない
+  // （初期useEffectで既に取得している）
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' })
@@ -306,7 +278,6 @@ export default function ChartStudioPage({ params }: PageProps) {
               globalFilters={globalFilters}
               onChangeGlobalFilters={setGlobalFilters}
               nextSortOrder={nextSortOrder}
-              stores={stores}
               clientId={clientId}
               entityId={entityId}
             />

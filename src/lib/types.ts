@@ -145,7 +145,7 @@ export interface ApiResponse<T = unknown> {
 
 // フィルタ設定
 export interface GlobalFilters {
-  store: string
+  department?: string  // 部門（オプション）
   lastN: number
 }
 

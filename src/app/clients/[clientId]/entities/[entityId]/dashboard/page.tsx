@@ -64,11 +64,10 @@ export default function DashboardPage({ params }: PageProps) {
   const [tasksLoading, setTasksLoading] = useState(false)
   const [pendingTaskChanges, setPendingTaskChanges] = useState<Map<string, PdcaStatus>>(new Map())
   const [savingTasks, setSavingTasks] = useState(false)
-  const [globalFilters, setGlobalFilters] = useState<GlobalFilters>({ store: '全店', lastN: 6 })
+  const [globalFilters, setGlobalFilters] = useState<GlobalFilters>({ lastN: 6 })
   const [loading, setLoading] = useState(true)
 
   // 実データ
-  const [stores, setStores] = useState<string[]>([])
   const [kpis, setKpis] = useState<KpiData[]>([])
   const [monthlySummary, setMonthlySummary] = useState<MonthlySummary[]>([])
   const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([])
@@ -169,18 +168,7 @@ export default function DashboardPage({ params }: PageProps) {
           setCharts(allCharts.filter((c: ChartConfig) => c.showOnDashboard))
         }
 
-        // 店舗一覧取得
-        try {
-          const storesRes = await fetch(`/api/clients/${clientId}/data?type=stores`)
-          const storesData = await storesRes.json()
-          if (storesData.success) {
-            setStores(storesData.data)
-          }
-        } catch {
-          console.warn('店舗一覧取得エラー')
-        }
-
-        // キャッシュ更新日時を取得
+        // キャッシュ更新日時を取得（廃止予定）
         try {
           const cacheRes = await fetch(`/api/clients/${clientId}/data/refresh`)
           const cacheData = await cacheRes.json()
@@ -230,44 +218,46 @@ export default function DashboardPage({ params }: PageProps) {
     fetchData()
   }, [router, clientId, entityId])
 
-  // 店舗フィルター変更時にデータ再取得
+  // 部門データ取得（entity.nameを部門パラメータとして使用）
   useEffect(() => {
-    const fetchPosData = async () => {
+    const fetchDepartmentData = async () => {
+      if (!entity?.name) return
+
       setDataLoading(true)
       try {
-        const storeParam = globalFilters.store !== '全店' ? `&store=${encodeURIComponent(globalFilters.store)}` : ''
+        const deptParam = `&department=${encodeURIComponent(entity.name)}`
 
         // KPIデータ取得
-        const kpiRes = await fetch(`/api/clients/${clientId}/data?type=kpi${storeParam}`)
+        const kpiRes = await fetch(`/api/clients/${clientId}/data?type=kpi${deptParam}`)
         const kpiData = await kpiRes.json()
         if (kpiData.success) {
           setKpis(kpiData.data)
         }
 
         // 月別サマリー取得
-        const summaryRes = await fetch(`/api/clients/${clientId}/data?type=summary${storeParam}`)
+        const summaryRes = await fetch(`/api/clients/${clientId}/data?type=summary${deptParam}`)
         const summaryData = await summaryRes.json()
         if (summaryData.success) {
           setMonthlySummary(summaryData.data)
         }
 
         // 月別データ取得（グラフ用）
-        const monthlyRes = await fetch(`/api/clients/${clientId}/data?type=monthly${storeParam}`)
+        const monthlyRes = await fetch(`/api/clients/${clientId}/data?type=monthly${deptParam}`)
         const monthlyDataRes = await monthlyRes.json()
         if (monthlyDataRes.success) {
           setMonthlyData(monthlyDataRes.data)
         }
       } catch (error) {
-        console.error('POS data fetch error:', error)
+        console.error('Department data fetch error:', error)
       } finally {
         setDataLoading(false)
       }
     }
 
-    if (!loading) {
-      fetchPosData()
+    if (!loading && entity) {
+      fetchDepartmentData()
     }
-  }, [clientId, globalFilters.store, loading])
+  }, [clientId, entity, loading])
 
   const handleLogout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' })
@@ -361,9 +351,7 @@ export default function DashboardPage({ params }: PageProps) {
     }
   }
 
-  const handleStoreChange = (store: string) => {
-    setGlobalFilters((prev) => ({ ...prev, store }))
-  }
+  // handleStoreChange は廃止（部門ベースに移行）
 
   // タスクステータス変更（ローカルのみ、保存ボタンで反映）
   const handleTaskStatusChange = useCallback((taskId: string, newStatus: PdcaStatus) => {
@@ -413,27 +401,25 @@ export default function DashboardPage({ params }: PageProps) {
   }
 
   const handleRefreshData = async () => {
+    if (!entity?.name) return
+
     setRefreshing(true)
     try {
-      const res = await fetch(`/api/clients/${clientId}/data/refresh`, { method: 'POST' })
-      const data = await res.json()
-      if (data.success) {
-        setCacheUpdatedAt(data.updatedAt)
-        // データを再取得
-        setDataLoading(true)
-        const storeParam = globalFilters.store !== '全店' ? `&store=${encodeURIComponent(globalFilters.store)}` : ''
-        const [kpiRes, summaryRes] = await Promise.all([
-          fetch(`/api/clients/${clientId}/data?type=kpi${storeParam}`),
-          fetch(`/api/clients/${clientId}/data?type=summary${storeParam}`),
-        ])
-        const kpiData = await kpiRes.json()
-        const summaryData = await summaryRes.json()
-        if (kpiData.success) setKpis(kpiData.data)
-        if (summaryData.success) setMonthlySummary(summaryData.data)
-        setDataLoading(false)
-      } else {
-        alert('データ更新に失敗しました: ' + data.error)
-      }
+      // データを再取得（部門ベース）
+      setDataLoading(true)
+      const deptParam = `&department=${encodeURIComponent(entity.name)}`
+      const [kpiRes, summaryRes, monthlyRes] = await Promise.all([
+        fetch(`/api/clients/${clientId}/data?type=kpi${deptParam}`),
+        fetch(`/api/clients/${clientId}/data?type=summary${deptParam}`),
+        fetch(`/api/clients/${clientId}/data?type=monthly${deptParam}`),
+      ])
+      const kpiData = await kpiRes.json()
+      const summaryData = await summaryRes.json()
+      const monthlyDataRes = await monthlyRes.json()
+      if (kpiData.success) setKpis(kpiData.data)
+      if (summaryData.success) setMonthlySummary(summaryData.data)
+      if (monthlyDataRes.success) setMonthlyData(monthlyDataRes.data)
+      setDataLoading(false)
     } catch (error) {
       console.error('Refresh error:', error)
       alert('データ更新に失敗しました')

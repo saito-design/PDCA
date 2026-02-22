@@ -111,7 +111,6 @@ interface ChartBuilderProps {
   globalFilters: GlobalFilters
   onChangeGlobalFilters: (updater: (prev: GlobalFilters) => GlobalFilters) => void
   nextSortOrder: number
-  stores?: string[]  // 実データの店舗リスト
   clientId: string   // 動的カラム取得用
   entityId?: string  // 部署ID（オプション）
 }
@@ -121,7 +120,6 @@ export function ChartBuilder({
   globalFilters,
   onChangeGlobalFilters,
   nextSortOrder,
-  stores = [],
   clientId,
   entityId,
 }: ChartBuilderProps) {
@@ -131,7 +129,6 @@ export function ChartBuilder({
   const [seriesKeys, setSeriesKeys] = useState<string[]>([])
   const [seriesConfig, setSeriesConfig] = useState<SeriesConfig[]>([])
   const [aggKey, setAggKey] = useState<AggKey>('raw')
-  const [store, setStore] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
 
   // localStorageからカラム設定を読み込んでメトリクスに変換
@@ -144,8 +141,6 @@ export function ChartBuilder({
     const newMetrics = numericColumns.map((col, idx) => columnToMetric(col, idx))
     setMetrics(newMetrics)
   }, [clientId, entityId])
-
-  const storeOptions = ['全店', ...stores]
 
   const toggleSeries = (k: string) => {
     if (seriesKeys.includes(k)) {
@@ -183,7 +178,7 @@ export function ChartBuilder({
       seriesKeys,
       seriesConfig,
       aggKey,
-      store: store || null,
+      store: null,  // 部門ベースに移行のため廃止
       showOnDashboard: false,
       sortOrder: nextSortOrder,
     }, selectedMetrics)
@@ -193,7 +188,6 @@ export function ChartBuilder({
     setSeriesKeys([])
     setSeriesConfig([])
     setAggKey('raw')
-    setStore('')
   }
 
   return (
@@ -206,35 +200,19 @@ export function ChartBuilder({
       {/* グローバルフィルタ */}
       <div className="rounded-xl border bg-gray-50 p-3">
         <div className="text-xs font-semibold text-gray-600 mb-2">全体フィルタ</div>
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <div className="text-xs text-gray-500 mb-1">店舗</div>
-            <select
-              className="w-full border rounded-lg px-2 py-1.5 bg-white text-sm"
-              value={globalFilters.store}
-              onChange={(e) =>
-                onChangeGlobalFilters((p) => ({ ...p, store: e.target.value }))
-              }
-            >
-              {storeOptions.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <div className="text-xs text-gray-500 mb-1">期間（直近N件）</div>
-            <select
-              className="w-full border rounded-lg px-2 py-1.5 bg-white text-sm"
-              value={globalFilters.lastN}
-              onChange={(e) =>
-                onChangeGlobalFilters((p) => ({ ...p, lastN: Number(e.target.value) }))
-              }
-            >
-              {[3, 6, 12].map((n) => (
-                <option key={n} value={n}>{n}</option>
-              ))}
-            </select>
-          </div>
+        <div>
+          <div className="text-xs text-gray-500 mb-1">期間（直近N件）</div>
+          <select
+            className="w-full border rounded-lg px-2 py-1.5 bg-white text-sm"
+            value={globalFilters.lastN}
+            onChange={(e) =>
+              onChangeGlobalFilters((p) => ({ ...p, lastN: Number(e.target.value) }))
+            }
+          >
+            {[3, 6, 12].map((n) => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -263,20 +241,6 @@ export function ChartBuilder({
             ))}
           </select>
         </div>
-      </div>
-
-      <div>
-        <div className="text-xs text-gray-500 mb-1">店舗（このグラフだけ）</div>
-        <select
-          className="w-full border rounded-lg px-2 py-1.5 bg-white text-sm"
-          value={store}
-          onChange={(e) => setStore(e.target.value)}
-        >
-          <option value="">全体フィルタに従う</option>
-          {storeOptions.map((s) => (
-            <option key={s} value={s}>{s}</option>
-          ))}
-        </select>
       </div>
 
       <div>
