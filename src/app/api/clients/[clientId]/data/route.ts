@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { getMonthlySummary, getStoreList, getLatestKpis, getAvailableFields, getMonthlyData } from '@/lib/excel-reader'
+import { getClientFolderId } from '@/lib/entity-helpers'
+import {
+  getMonthlySummary as getDriveMonthlySummary,
+  getLatestKpis as getDriveKpis,
+  getMonthlyData as getDriveMonthlyData,
+  getDepartments,
+  getAvailableMetrics,
+} from '@/lib/drive-data-reader'
 
 type RouteContext = {
   params: Promise<{ clientId: string }>
@@ -11,32 +18,37 @@ export async function GET(request: NextRequest, context: RouteContext) {
     await requireAuth()
     const { clientId } = await context.params
     const { searchParams } = new URL(request.url)
-    const store = searchParams.get('store') || undefined
+    const department = searchParams.get('department') || undefined
     const type = searchParams.get('type') || 'summary'
 
-    // クライアントIDのマッピング
-    // junestory: 実データ、demo-client-1: ジュネストリーのデモ表示
-    const excelClientId = clientId === 'demo-client-1' ? 'junestory' : clientId
+    // Drive JSONベースのデータ取得
+    const clientFolderId = await getClientFolderId(clientId)
+    if (!clientFolderId) {
+      return NextResponse.json({ success: true, data: [] })
+    }
 
     switch (type) {
       case 'summary': {
-        const data = getMonthlySummary(excelClientId, store)
+        const data = await getDriveMonthlySummary(clientId, department)
         return NextResponse.json({ success: true, data })
       }
-      case 'stores': {
-        const data = getStoreList(excelClientId)
+      case 'departments': {
+        const data = await getDepartments(clientId)
         return NextResponse.json({ success: true, data })
       }
       case 'kpi': {
-        const data = getLatestKpis(excelClientId, store)
+        const data = await getDriveKpis(clientId, department)
         return NextResponse.json({ success: true, data })
       }
-      case 'fields': {
-        const data = getAvailableFields()
+      case 'fields':
+      case 'metrics': {
+        const data = await getAvailableMetrics(clientId, department)
         return NextResponse.json({ success: true, data })
       }
       case 'monthly': {
-        const data = getMonthlyData(excelClientId, store)
+        const metricsParam = searchParams.get('metrics')
+        const metrics = metricsParam ? metricsParam.split(',') : undefined
+        const data = await getDriveMonthlyData(clientId, department, metrics)
         return NextResponse.json({ success: true, data })
       }
       default:
