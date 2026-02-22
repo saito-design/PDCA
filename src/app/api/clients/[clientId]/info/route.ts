@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
 import { getClientDataInfo, refreshCache } from '@/lib/excel-reader'
-import { loadJsonFromFolder, getPdcaFolderId } from '@/lib/drive'
+import { loadJsonFromFolder, getPdcaFolderId, isDriveConfigured, getDriveClient } from '@/lib/drive'
 import { ApiResponse, Client } from '@/lib/types'
 
 type RouteParams = {
@@ -20,6 +20,27 @@ async function getClientById(clientId: string): Promise<Client | null> {
   }
 }
 
+// Driveフォルダ内のデータファイルを検索
+async function findDataFileInDrive(folderId: string): Promise<string | null> {
+  try {
+    if (!isDriveConfigured()) return null
+    const drive = getDriveClient()
+    const res = await drive.files.list({
+      q: `'${folderId}' in parents and trashed=false and (name='unified_data.json' or name contains '_master_data')`,
+      fields: 'files(id, name)',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    })
+    const files = res.data.files || []
+    if (files.length > 0) {
+      return files[0].name || null
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 export async function GET(
   _request: NextRequest,
   context: RouteParams
@@ -32,7 +53,21 @@ export async function GET(
     const client = await getClientById(clientId)
     const driveFolderId = client?.drive_folder_id ?? undefined
 
+    // 基本情報を取得
     const info = getClientDataInfo(clientId, driveFolderId)
+
+    // Driveの場合、実際にファイルが存在するか確認
+    if (driveFolderId && info.dataSourceType === 'drive') {
+      const actualFile = await findDataFileInDrive(driveFolderId)
+      if (actualFile) {
+        info.fileName = actualFile
+        info.hasDataSource = true
+      } else {
+        // ファイルが見つからない場合
+        info.fileName = null
+        info.hasDataSource = false
+      }
+    }
 
     return NextResponse.json({
       success: true,
