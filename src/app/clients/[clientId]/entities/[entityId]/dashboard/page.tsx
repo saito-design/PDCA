@@ -2,10 +2,13 @@
 
 import { useState, useEffect, useMemo, use, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, LogOut, PenTool, RefreshCw, Settings2, X, PanelLeftClose, PanelLeftOpen, Save } from 'lucide-react'
-import type { ChartConfig, GlobalFilters, SessionData, Client, Entity, PdcaCycle, Task, PdcaStatus } from '@/lib/types'
+import { ChevronLeft, LogOut, PenTool, RefreshCw, Settings2, X, PanelLeftClose, PanelLeftOpen, Save, Database } from 'lucide-react'
+import ColumnSelector from '@/components/column-selector'
+import type { SelectedColumn } from '@/lib/column-storage'
+import { getSelectedColumns } from '@/lib/column-storage'
+import type { ChartConfig, GlobalFilters, SessionData, Client, Entity, PdcaCycle, Task, PdcaStatus, DynamicMetric } from '@/lib/types'
 import { KpiGrid } from '@/components/kpi-card'
-import { ChartRenderer } from '@/components/chart-renderer'
+import { ChartRenderer, COLOR_PALETTE } from '@/components/chart-renderer'
 import { PdcaEditor } from '@/components/pdca-editor'
 import { MeetingHistory } from '@/components/meeting-history'
 import { ReportExportButton } from '@/components/report-export-button'
@@ -80,6 +83,10 @@ export default function DashboardPage({ params }: PageProps) {
   // データパネル開閉
   const [showDataPanel, setShowDataPanel] = useState(false)
 
+  // カラム選択
+  const [showColumnSelector, setShowColumnSelector] = useState(false)
+  const [selectedColumns, setSelectedColumns] = useState<SelectedColumn[]>([])
+
   // ローカルストレージからKPI設定を読み込み
   useEffect(() => {
     const saved = localStorage.getItem(`kpi-hidden-${clientId}`)
@@ -87,6 +94,25 @@ export default function DashboardPage({ params }: PageProps) {
       setHiddenKpis(JSON.parse(saved))
     }
   }, [clientId])
+
+  // ローカルストレージからカラム選択を読み込み
+  useEffect(() => {
+    const saved = getSelectedColumns(clientId, entityId)
+    setSelectedColumns(saved)
+  }, [clientId, entityId])
+
+  // 選択されたカラムから動的メトリクスを生成
+  const currentMetrics = useMemo((): DynamicMetric[] => {
+    return selectedColumns
+      .filter(col => col.type === 'number')
+      .map((col, idx) => ({
+        key: col.name,
+        label: col.label || col.name,
+        color: COLOR_PALETTE[idx % COLOR_PALETTE.length],
+        unit: col.unit || '',
+        type: col.type,
+      }))
+  }, [selectedColumns])
 
   // KPI設定をローカルストレージに保存
   const toggleKpiVisibility = (key: string) => {
@@ -283,8 +309,12 @@ export default function DashboardPage({ params }: PageProps) {
         if (cyclesData.success) {
           setCycles(cyclesData.data)
         }
-        // 【】からタスクを抽出して追加
-        await createTasksFromAction(data.action)
+        // タスク一覧も再取得（API側で【】からタスクが自動追加されるため）
+        const tasksRes = await fetch(`/api/clients/${clientId}/entities/${entityId}/tasks`)
+        const tasksData = await tasksRes.json()
+        if (tasksData.success) {
+          setTasks(tasksData.data)
+        }
         alert('保存しました')
       } else {
         alert('保存に失敗しました: ' + result.error)
@@ -316,8 +346,12 @@ export default function DashboardPage({ params }: PageProps) {
       const result = await res.json()
       if (result.success) {
         setCycles(prev => prev.map(c => c.id === cycle.id ? result.data : c))
-        // 【】からタスクを抽出して追加（編集時も新しい【】を検出）
-        await createTasksFromAction(cycle.action)
+        // タスク一覧も再取得（API側で【】からタスクが自動追加されるため）
+        const tasksRes = await fetch(`/api/clients/${clientId}/entities/${entityId}/tasks`)
+        const tasksData = await tasksRes.json()
+        if (tasksData.success) {
+          setTasks(tasksData.data)
+        }
       } else {
         alert('更新に失敗しました: ' + result.error)
       }
@@ -375,48 +409,6 @@ export default function DashboardPage({ params }: PageProps) {
       alert('タスク保存に失敗しました')
     } finally {
       setSavingTasks(false)
-    }
-  }
-
-  // 【】からタスクを抽出する関数
-  const extractTasksFromAction = (action: string): string[] => {
-    const regex = /【([^】]+)】/g
-    const tasks: string[] = []
-    let match
-    while ((match = regex.exec(action)) !== null) {
-      tasks.push(match[1])
-    }
-    return tasks
-  }
-
-  // 新しいタスクを作成（【】抽出時に使用）
-  const createTasksFromAction = async (action: string) => {
-    const taskTitles = extractTasksFromAction(action)
-    if (taskTitles.length === 0) return
-
-    // 既存タスクのタイトルを取得
-    const existingTitles = tasks.map(t => t.title)
-
-    // 新しいタスクのみ追加
-    const newTaskTitles = taskTitles.filter(title => !existingTitles.includes(title))
-
-    for (const title of newTaskTitles) {
-      try {
-        const res = await fetch(`/api/clients/${clientId}/entities/${entityId}/tasks`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            title,
-            status: 'open',
-          }),
-        })
-        const result = await res.json()
-        if (result.success) {
-          setTasks(prev => [result.data, ...prev])
-        }
-      } catch (error) {
-        console.error('Create task error:', error)
-      }
     }
   }
 
@@ -515,11 +507,28 @@ export default function DashboardPage({ params }: PageProps) {
                   <h2 className="text-lg font-bold">データ表示</h2>
                   <div className="flex items-center gap-2">
                     <button
+                      onClick={handleRefreshData}
+                      disabled={refreshing}
+                      className="flex items-center gap-1 text-sm text-orange-600 hover:text-orange-700 disabled:opacity-50"
+                      title="データを更新"
+                    >
+                      <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
+                      更新
+                    </button>
+                    <button
                       onClick={() => setShowKpiSettings(true)}
                       className="text-gray-400 hover:text-gray-600"
                       title="表示項目を設定"
                     >
                       <Settings2 size={16} />
+                    </button>
+                    <button
+                      onClick={() => setShowColumnSelector(true)}
+                      className="flex items-center gap-1 text-sm text-green-600 hover:text-green-700"
+                      title="データ項目を設定"
+                    >
+                      <Database size={14} />
+                      データ項目
                     </button>
                     <button
                       onClick={handleOpenChartStudio}
@@ -601,6 +610,7 @@ export default function DashboardPage({ params }: PageProps) {
                   config={chart}
                   globalFilters={globalFilters}
                   data={monthlyData}
+                  metrics={currentMetrics.length > 0 ? currentMetrics : undefined}
                 />
               ))}
             </div>
@@ -687,6 +697,16 @@ export default function DashboardPage({ params }: PageProps) {
           </div>
         </div>
       </main>
+
+      {/* カラム選択モーダル */}
+      {showColumnSelector && (
+        <ColumnSelector
+          clientId={clientId}
+          entityId={entityId}
+          onClose={() => setShowColumnSelector(false)}
+          onSave={(columns) => setSelectedColumns(columns)}
+        />
+      )}
     </div>
   )
 }

@@ -12,24 +12,28 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts'
-import type { ChartConfig, GlobalFilters, SeriesConfig, LineStyle } from '@/lib/types'
+import type { ChartConfig, GlobalFilters, SeriesConfig, LineStyle, DynamicMetric } from '@/lib/types'
 
-// 実データ用の指標定義（エクセルのカラムに対応）
-export const METRICS = [
-  { key: 'netSales', label: '売上高', color: '#3b82f6', unit: '円' },
-  { key: 'customers', label: '客数', color: '#10b981', unit: '人' },
-  { key: 'customerPrice', label: '客単価', color: '#ec4899', unit: '円' },
-  { key: 'groups', label: '組数', color: '#f59e0b', unit: '組' },
-  { key: 'personsPerGroup', label: '一組当たり人数', color: '#8b5cf6', unit: '人' },
-  { key: 'prevYearSales', label: '前年売上', color: '#9ca3af', unit: '円' },
-  { key: 'prevYearCustomers', label: '前年客数', color: '#6b7280', unit: '人' },
+// デフォルトの指標定義（後方互換性のため残す）
+export const DEFAULT_METRICS: DynamicMetric[] = [
+  { key: 'netSales', label: '売上高', color: '#3b82f6', unit: '円', type: 'number' },
+  { key: 'customers', label: '客数', color: '#10b981', unit: '人', type: 'number' },
+  { key: 'customerPrice', label: '客単価', color: '#ec4899', unit: '円', type: 'number' },
+  { key: 'groups', label: '組数', color: '#f59e0b', unit: '組', type: 'number' },
+  { key: 'personsPerGroup', label: '一組当たり人数', color: '#8b5cf6', unit: '人', type: 'number' },
+  { key: 'prevYearSales', label: '前年売上', color: '#9ca3af', unit: '円', type: 'number' },
+  { key: 'prevYearCustomers', label: '前年客数', color: '#6b7280', unit: '人', type: 'number' },
 ]
+
+// 後方互換性のためエクスポート
+export const METRICS = DEFAULT_METRICS
 
 // 集計タイプ
 export const AGGS = [
   { key: 'raw', label: 'そのまま' },
   { key: 'yoy_diff', label: '前年差' },
   { key: 'yoy_pct', label: '前年比%' },
+  { key: 'cumulative', label: '累計' },
 ]
 
 // 線のスタイル
@@ -89,9 +93,10 @@ interface ChartRendererProps {
   config: ChartConfig
   globalFilters: GlobalFilters
   data?: DataRow[]
+  metrics?: DynamicMetric[]  // 動的メトリクス（指定しない場合はデフォルト）
 }
 
-export function ChartRenderer({ config, globalFilters, data }: ChartRendererProps) {
+export function ChartRenderer({ config, globalFilters, data, metrics }: ChartRendererProps) {
   const {
     title,
     xKey = 'yearMonth',
@@ -101,11 +106,30 @@ export function ChartRenderer({ config, globalFilters, data }: ChartRendererProp
     store,
   } = config
 
+  // 使用するメトリクス定義（propsで渡されたものを優先）
+  const activeMetrics = metrics || DEFAULT_METRICS
+
   const chartData = useMemo(() => {
     if (!data || data.length === 0) return []
 
     // 直近N件
     const sliced = data.slice(-globalFilters.lastN)
+
+    // 累計計算
+    if (aggKey === 'cumulative') {
+      let cumulativeValues: Record<string, number> = {}
+      return sliced.map((row) => {
+        const newRow = { ...row }
+        for (const key of seriesKeys) {
+          const v = row[key]
+          if (typeof v === 'number') {
+            cumulativeValues[key] = (cumulativeValues[key] || 0) + v
+            newRow[key] = cumulativeValues[key]
+          }
+        }
+        return newRow
+      })
+    }
 
     // 集計適用
     return sliced.map((row) => computeAggRow(row, aggKey, seriesKeys))
@@ -177,7 +201,7 @@ export function ChartRenderer({ config, globalFilters, data }: ChartRendererProp
           <Tooltip
             formatter={(value, name) => {
               if (typeof value !== 'number') return [String(value), String(name)]
-              const metric = METRICS.find((m) => m.key === name)
+              const metric = activeMetrics.find((m) => m.key === name)
               if (metric?.unit === '円' && value >= 1000) {
                 return [`${Math.round(value / 1000).toLocaleString()}千円`, metric.label]
               }
@@ -187,7 +211,7 @@ export function ChartRenderer({ config, globalFilters, data }: ChartRendererProp
           <Legend />
 
           {seriesKeys.map((key, idx) => {
-            const metric = METRICS.find((m) => m.key === key)
+            const metric = activeMetrics.find((m) => m.key === key)
             const sc = seriesConfigMap.get(key)
             const chartType = sc?.chartType || 'bar'
             const color = sc?.color || metric?.color || COLOR_PALETTE[idx % COLOR_PALETTE.length]

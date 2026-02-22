@@ -30,7 +30,7 @@ export interface User {
 // グラフ定義
 export type ChartType = 'line' | 'bar'
 export type LineStyle = 'solid' | 'dashed' | 'dotted'
-export type AggKey = 'raw' | 'yoy_diff' | 'yoy_pct'
+export type AggKey = 'raw' | 'yoy_diff' | 'yoy_pct' | 'cumulative'
 
 // 各系列の設定
 export interface SeriesConfig {
@@ -161,4 +161,13 @@ export interface ChartConfig {
   store: string | null
   showOnDashboard: boolean
   sortOrder: number
+}
+
+// 動的メトリクス定義（column-selectorと連携）
+export interface DynamicMetric {
+  key: string      // カラム名
+  label: string    // 表示名
+  color: string    // グラフの色
+  unit: string     // 単位（円、人、%など）
+  type: 'number' | 'string' | 'date' | 'unknown'
 }

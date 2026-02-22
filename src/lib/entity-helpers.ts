@@ -100,11 +100,36 @@ export async function getEntity(
 // マスターデータ（統合JSON）操作
 // ========================================
 
-// マスターデータ読み込み
+// マスターデータ読み込み（重複タイトル自動除去）
 export async function loadMasterData(clientFolderId: string): Promise<MasterData | null> {
   try {
     const result = await loadJsonFromFolder<MasterData>(MASTER_DATA_FILENAME, clientFolderId)
     if (result?.data) {
+      const originalIssuesCount = result.data.issues?.length || 0
+
+      // entity_id + title の組み合わせで重複を除去（新しいものを優先）
+      if (result.data.issues && result.data.issues.length > 0) {
+        const seen = new Map<string, typeof result.data.issues[0]>()
+        // 古い順にソートして、新しいものが上書きするように
+        const sorted = [...result.data.issues].sort(
+          (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+        )
+        for (const issue of sorted) {
+          const key = `${issue.entity_id || ''}_${issue.title}`
+          seen.set(key, issue)
+        }
+        result.data.issues = Array.from(seen.values())
+      }
+
+      const deduplicatedCount = result.data.issues?.length || 0
+      if (originalIssuesCount !== deduplicatedCount) {
+        console.log('loadMasterData: 重複除去', {
+          before: originalIssuesCount,
+          after: deduplicatedCount,
+          removed: originalIssuesCount - deduplicatedCount,
+        })
+      }
+
       console.log('loadMasterData: master-data.json loaded', {
         issues: result.data.issues?.length || 0,
         cycles: result.data.cycles?.length || 0,
@@ -118,8 +143,21 @@ export async function loadMasterData(clientFolderId: string): Promise<MasterData
   }
 }
 
-// マスターデータ保存
+// マスターデータ保存（保存前に重複除去）
 export async function saveMasterData(data: MasterData, clientFolderId: string): Promise<void> {
+  // 保存前に重複を除去
+  if (data.issues && data.issues.length > 0) {
+    const seen = new Map<string, typeof data.issues[0]>()
+    const sorted = [...data.issues].sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    )
+    for (const issue of sorted) {
+      const key = `${issue.entity_id || ''}_${issue.title}`
+      seen.set(key, issue)
+    }
+    data.issues = Array.from(seen.values())
+  }
+
   data.updated_at = new Date().toISOString()
   await saveJsonToFolder(data, MASTER_DATA_FILENAME, clientFolderId)
 }

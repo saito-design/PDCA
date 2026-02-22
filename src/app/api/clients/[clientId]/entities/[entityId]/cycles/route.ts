@@ -1,33 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
 import { ApiResponse, PdcaCycle } from '@/lib/types'
-import {
-  isDriveConfigured,
-  loadJsonFromFolder,
-} from '@/lib/drive'
+import { isDriveConfigured } from '@/lib/drive'
 import {
   getClientFolderId,
-  getEntityFolderId,
+  loadMasterData,
 } from '@/lib/entity-helpers'
-
-const CYCLES_FILENAME = 'cycles.json'
-
-// 部署フォルダからサイクルを読み込む
-async function loadCycles(entityFolderId: string): Promise<PdcaCycle[]> {
-  try {
-    const result = await loadJsonFromFolder<PdcaCycle[]>(CYCLES_FILENAME, entityFolderId)
-    return result?.data || []
-  } catch (error) {
-    console.warn('サイクル読み込みエラー:', error)
-    return []
-  }
-}
 
 type RouteParams = {
   params: Promise<{ clientId: string; entityId: string }>
 }
 
-// 部署ごとのサイクル一覧取得
+// 部署ごとのサイクル一覧取得（master-data.jsonから）
 export async function GET(
   _request: NextRequest,
   context: RouteParams
@@ -59,16 +43,10 @@ export async function GET(
       )
     }
 
-    const entityFolderId = await getEntityFolderId(clientFolderId, entityId)
-    if (!entityFolderId) {
-      return NextResponse.json(
-        { success: false, error: '部署が見つかりません' },
-        { status: 404 }
-      )
-    }
-
-    // 部署フォルダから直接読み込む
-    const cycles = await loadCycles(entityFolderId)
+    // master-data.jsonからサイクルを読み込み、entity_idでフィルタ
+    const masterData = await loadMasterData(clientFolderId)
+    const allCycles = masterData?.cycles || []
+    const cycles = allCycles.filter(c => c.entity_id === entityId)
 
     // サイクル日付の降順でソート
     cycles.sort((a, b) => new Date(b.cycle_date).getTime() - new Date(a.cycle_date).getTime())

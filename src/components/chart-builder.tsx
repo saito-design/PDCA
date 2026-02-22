@@ -1,18 +1,31 @@
 'use client'
 
-import { useState } from 'react'
-import { Plus, Settings2 } from 'lucide-react'
-import type { ChartConfig, GlobalFilters, ChartType, AggKey, SeriesConfig, LineStyle } from '@/lib/types'
-import { METRICS, AGGS, COLOR_PALETTE } from './chart-renderer'
+import { useState, useEffect, useMemo } from 'react'
+import { Plus, Settings2, AlertCircle } from 'lucide-react'
+import type { ChartConfig, GlobalFilters, ChartType, AggKey, SeriesConfig, LineStyle, DynamicMetric } from '@/lib/types'
+import { AGGS, COLOR_PALETTE } from './chart-renderer'
+import { getSelectedColumns, type SelectedColumn } from '@/lib/column-storage'
+
+// SelectedColumnからDynamicMetricへの変換
+function columnToMetric(col: SelectedColumn, index: number): DynamicMetric {
+  return {
+    key: col.name,
+    label: col.label || col.name,
+    color: COLOR_PALETTE[index % COLOR_PALETTE.length],
+    unit: col.unit || '',
+    type: col.type,
+  }
+}
 
 interface SeriesSettingProps {
   metricKey: string
   config: SeriesConfig
   onChange: (config: SeriesConfig) => void
+  metrics: DynamicMetric[]
 }
 
-function SeriesSetting({ metricKey, config, onChange }: SeriesSettingProps) {
-  const metric = METRICS.find((m) => m.key === metricKey)
+function SeriesSetting({ metricKey, config, onChange, metrics }: SeriesSettingProps) {
+  const metric = metrics.find((m) => m.key === metricKey)
   const currentColor = config.color || metric?.color || COLOR_PALETTE[0]
 
   return (
@@ -94,11 +107,13 @@ function SeriesSetting({ metricKey, config, onChange }: SeriesSettingProps) {
 }
 
 interface ChartBuilderProps {
-  onAdd: (chart: ChartConfig) => void
+  onAdd: (chart: ChartConfig, metrics: DynamicMetric[]) => void
   globalFilters: GlobalFilters
   onChangeGlobalFilters: (updater: (prev: GlobalFilters) => GlobalFilters) => void
   nextSortOrder: number
   stores?: string[]  // 実データの店舗リスト
+  clientId: string   // 動的カラム取得用
+  entityId?: string  // 部署ID（オプション）
 }
 
 export function ChartBuilder({
@@ -107,18 +122,28 @@ export function ChartBuilder({
   onChangeGlobalFilters,
   nextSortOrder,
   stores = [],
+  clientId,
+  entityId,
 }: ChartBuilderProps) {
   const [defaultType, setDefaultType] = useState<ChartType>('bar')
   const [xKey] = useState('yearMonth')
-  const [title, setTitle] = useState('売上推移')
-  const [seriesKeys, setSeriesKeys] = useState<string[]>(['netSales', 'prevYearSales'])
-  const [seriesConfig, setSeriesConfig] = useState<SeriesConfig[]>([
-    { key: 'netSales', chartType: 'bar', color: '#3b82f6' },
-    { key: 'prevYearSales', chartType: 'line', lineStyle: 'dashed', opacity: 0.5, color: '#9ca3af' },
-  ])
+  const [title, setTitle] = useState('新規グラフ')
+  const [seriesKeys, setSeriesKeys] = useState<string[]>([])
+  const [seriesConfig, setSeriesConfig] = useState<SeriesConfig[]>([])
   const [aggKey, setAggKey] = useState<AggKey>('raw')
   const [store, setStore] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
+
+  // localStorageからカラム設定を読み込んでメトリクスに変換
+  const [metrics, setMetrics] = useState<DynamicMetric[]>([])
+
+  useEffect(() => {
+    const columns = getSelectedColumns(clientId, entityId)
+    // 数値型のカラムのみをメトリクスとして使用
+    const numericColumns = columns.filter(col => col.type === 'number')
+    const newMetrics = numericColumns.map((col, idx) => columnToMetric(col, idx))
+    setMetrics(newMetrics)
+  }, [clientId, entityId])
 
   const storeOptions = ['全店', ...stores]
 
@@ -127,7 +152,7 @@ export function ChartBuilder({
       setSeriesKeys((prev) => prev.filter((x) => x !== k))
       setSeriesConfig((prev) => prev.filter((x) => x.key !== k))
     } else {
-      const metric = METRICS.find((m) => m.key === k)
+      const metric = metrics.find((m) => m.key === k)
       setSeriesKeys((prev) => [...prev, k])
       setSeriesConfig((prev) => [...prev, {
         key: k,
@@ -147,6 +172,9 @@ export function ChartBuilder({
     if (!title.trim()) return
     if (seriesKeys.length === 0) return
 
+    // 選択されたメトリクスのみを抽出
+    const selectedMetrics = metrics.filter(m => seriesKeys.includes(m.key))
+
     onAdd({
       id: crypto.randomUUID?.() ?? String(Date.now()),
       type: defaultType,
@@ -158,15 +186,12 @@ export function ChartBuilder({
       store: store || null,
       showOnDashboard: false,
       sortOrder: nextSortOrder,
-    })
+    }, selectedMetrics)
 
     // リセット
-    setTitle('売上推移')
-    setSeriesKeys(['netSales', 'prevYearSales'])
-    setSeriesConfig([
-      { key: 'netSales', chartType: 'bar', color: '#3b82f6' },
-      { key: 'prevYearSales', chartType: 'line', lineStyle: 'dashed', opacity: 0.5, color: '#9ca3af' },
-    ])
+    setTitle('新規グラフ')
+    setSeriesKeys([])
+    setSeriesConfig([])
     setAggKey('raw')
     setStore('')
   }
@@ -266,23 +291,35 @@ export function ChartBuilder({
 
       <div>
         <div className="text-xs text-gray-500 mb-1">データ項目（表示する数値）</div>
-        <div className="grid grid-cols-2 gap-2">
-          {METRICS.map((m) => (
-            <label
-              key={m.key}
-              className="flex items-center gap-2 text-sm bg-gray-50 border rounded-lg px-2 py-1.5 cursor-pointer hover:bg-gray-100"
-            >
-              <input
-                type="checkbox"
-                checked={seriesKeys.includes(m.key)}
-                onChange={() => toggleSeries(m.key)}
-                className="rounded"
-              />
-              <span style={{ color: m.color }}>{m.label}</span>
-              <span className="text-xs text-gray-400">({m.unit})</span>
-            </label>
-          ))}
-        </div>
+        {metrics.length === 0 ? (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2">
+            <AlertCircle size={16} className="text-amber-500 mt-0.5 flex-shrink-0" />
+            <div className="text-sm text-amber-700">
+              <div className="font-medium">データ項目が設定されていません</div>
+              <div className="text-xs mt-1">
+                ダッシュボードの「データ項目」ボタンからカラムを選択してください
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+            {metrics.map((m) => (
+              <label
+                key={m.key}
+                className="flex items-center gap-2 text-sm bg-gray-50 border rounded-lg px-2 py-1.5 cursor-pointer hover:bg-gray-100"
+              >
+                <input
+                  type="checkbox"
+                  checked={seriesKeys.includes(m.key)}
+                  onChange={() => toggleSeries(m.key)}
+                  className="rounded"
+                />
+                <span className="truncate" style={{ color: m.color }}>{m.label}</span>
+                {m.unit && <span className="text-xs text-gray-400 flex-shrink-0">({m.unit})</span>}
+              </label>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 詳細設定（各系列ごと） */}
@@ -306,6 +343,7 @@ export function ChartBuilder({
                     metricKey={key}
                     config={cfg}
                     onChange={(c) => updateSeriesConfig(key, c)}
+                    metrics={metrics}
                   />
                 )
               })}

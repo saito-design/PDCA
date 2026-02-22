@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Building2, LogOut, RefreshCw, FileSpreadsheet, FolderOpen, Plus, Copy, Check, Trash2, AlertTriangle, Cloud, Pencil, ChevronUp, ChevronDown } from 'lucide-react'
+import { Building2, LogOut, RefreshCw, FileSpreadsheet, FolderOpen, Plus, Copy, Check, Trash2, AlertTriangle, Cloud, Pencil, ChevronUp, ChevronDown, Upload } from 'lucide-react'
+import { useRef } from 'react'
 import type { Client, SessionData } from '@/lib/types'
 
 interface ClientDataInfo {
@@ -40,6 +41,15 @@ export default function ClientsPage() {
   const [editingClient, setEditingClient] = useState<Client | null>(null)
   const [editName, setEditName] = useState('')
   const [updating, setUpdating] = useState(false)
+  const [uploadingId, setUploadingId] = useState<string | null>(null)
+  const [uploadResult, setUploadResult] = useState<{
+    clientId: string
+    success: boolean
+    message: string
+    details?: { totalRecords: number; totalColumns: number; sheets: string[] }
+  } | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploadTargetId, setUploadTargetId] = useState<string | null>(null)
 
   useEffect(() => {
     fetchData()
@@ -264,6 +274,65 @@ export default function ClientsPage() {
     }
   }
 
+  const handleUploadClick = (clientId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setUploadTargetId(clientId)
+    fileInputRef.current?.click()
+  }
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !uploadTargetId) return
+
+    setUploadingId(uploadTargetId)
+    setUploadResult(null)
+
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const res = await fetch(`/api/clients/${uploadTargetId}/upload-data`, {
+        method: 'POST',
+        body: formData,
+      })
+      const data = await res.json()
+
+      if (data.success) {
+        setUploadResult({
+          clientId: uploadTargetId,
+          success: true,
+          message: `${data.data.fileName} を変換しました`,
+          details: {
+            totalRecords: data.data.totalRecords,
+            totalColumns: data.data.totalColumns,
+            sheets: data.data.sheets,
+          },
+        })
+        // データ情報を更新
+        fetchData()
+      } else {
+        setUploadResult({
+          clientId: uploadTargetId,
+          success: false,
+          message: data.error || 'アップロードに失敗しました',
+        })
+      }
+    } catch {
+      setUploadResult({
+        clientId: uploadTargetId,
+        success: false,
+        message: 'アップロードに失敗しました',
+      })
+    } finally {
+      setUploadingId(null)
+      setUploadTargetId(null)
+      // ファイル選択をリセット
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
   const formatDate = (isoString: string | null) => {
     if (!isoString) return '未取得'
     const date = new Date(isoString)
@@ -285,6 +354,15 @@ export default function ClientsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".xlsx,.xls"
+        onChange={handleFileChange}
+        className="hidden"
+      />
+
       {/* Header */}
       <header className="bg-white shadow">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -395,6 +473,35 @@ export default function ClientsPage() {
                     )}
                   </div>
 
+                  {/* アップロード結果表示 */}
+                  {uploadResult && uploadResult.clientId === client.id && (
+                    <div className={`text-xs p-2 rounded ${uploadResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                      {uploadResult.message}
+                      {uploadResult.details && (
+                        <div className="mt-1 text-gray-600">
+                          {uploadResult.details.totalRecords}件 / {uploadResult.details.sheets.length}シート
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* アップロードボタン（Driveの場合） */}
+                  {client.dataInfo.dataSourceType === 'drive' && (
+                    <div className="flex items-center justify-end">
+                      <button
+                        onClick={(e) => handleUploadClick(client.id, e)}
+                        disabled={uploadingId === client.id}
+                        className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                      >
+                        <Upload
+                          size={12}
+                          className={uploadingId === client.id ? 'animate-pulse' : ''}
+                        />
+                        {uploadingId === client.id ? 'アップロード中...' : 'Excelアップロード'}
+                      </button>
+                    </div>
+                  )}
+
                   {/* 更新日時と更新ボタン（Excelの場合のみ） */}
                   {client.dataInfo.dataSourceType === 'excel' && (
                     <div className="flex items-center justify-between">
@@ -440,9 +547,33 @@ export default function ClientsPage() {
 
               {/* データソースなしの場合 */}
               {!client.dataInfo?.hasDataSource && (
-                <div className="border-t pt-3">
-                  <div className="text-xs text-gray-400">
-                    データソース未設定
+                <div className="border-t pt-3 space-y-2">
+                  {/* アップロード結果表示 */}
+                  {uploadResult && uploadResult.clientId === client.id && (
+                    <div className={`text-xs p-2 rounded ${uploadResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                      {uploadResult.message}
+                      {uploadResult.details && (
+                        <div className="mt-1 text-gray-600">
+                          {uploadResult.details.totalRecords}件 / {uploadResult.details.sheets.length}シート
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-gray-400">
+                      データソース未設定
+                    </span>
+                    <button
+                      onClick={(e) => handleUploadClick(client.id, e)}
+                      disabled={uploadingId === client.id}
+                      className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                    >
+                      <Upload
+                        size={12}
+                        className={uploadingId === client.id ? 'animate-pulse' : ''}
+                      />
+                      {uploadingId === client.id ? 'アップロード中...' : 'Excelアップロード'}
+                    </button>
                   </div>
                 </div>
               )}

@@ -3,22 +3,22 @@
 import { useState, useEffect, useMemo, use } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, LogOut } from 'lucide-react'
-import type { ChartConfig, GlobalFilters, SessionData, Client, Entity } from '@/lib/types'
+import type { ChartConfig, GlobalFilters, SessionData, Client, Entity, DynamicMetric } from '@/lib/types'
 import { ChartBuilder } from '@/components/chart-builder'
 import { ChartList } from '@/components/chart-list'
 import { ChartRenderer } from '@/components/chart-renderer'
+import { getSelectedColumns } from '@/lib/column-storage'
+import { COLOR_PALETTE } from '@/components/chart-renderer'
 
 interface MonthlyData {
   yearMonth: string
-  netSales: number
-  customers: number
-  customerPrice: number
-  groups: number
-  personsPerGroup: number
-  prevYearSales: number | null
-  prevYearCustomers: number | null
-  prevYearCustomerPrice: number | null
   [key: string]: string | number | null
+}
+
+// グラフと紐づくメトリクス情報を保持
+interface ChartWithMetrics {
+  chart: ChartConfig
+  metrics: DynamicMetric[]
 }
 
 type PageProps = {
@@ -32,13 +32,30 @@ export default function ChartStudioPage({ params }: PageProps) {
   const [user, setUser] = useState<SessionData | null>(null)
   const [client, setClient] = useState<Client | null>(null)
   const [entity, setEntity] = useState<Entity | null>(null)
-  const [charts, setCharts] = useState<ChartConfig[]>([])
+  const [chartsWithMetrics, setChartsWithMetrics] = useState<ChartWithMetrics[]>([])
   const [globalFilters, setGlobalFilters] = useState<GlobalFilters>({ store: '全店', lastN: 6 })
   const [loading, setLoading] = useState(true)
 
   // 実データ
   const [stores, setStores] = useState<string[]>([])
   const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([])
+
+  // 現在のカラム設定からメトリクスを生成
+  const currentMetrics = useMemo(() => {
+    const columns = getSelectedColumns(clientId, entityId)
+    return columns
+      .filter(col => col.type === 'number')
+      .map((col, idx) => ({
+        key: col.name,
+        label: col.label || col.name,
+        color: COLOR_PALETTE[idx % COLOR_PALETTE.length],
+        unit: col.unit || '',
+        type: col.type,
+      })) as DynamicMetric[]
+  }, [clientId, entityId])
+
+  // charts配列（後方互換性のため）
+  const charts = useMemo(() => chartsWithMetrics.map(cm => cm.chart), [chartsWithMetrics])
 
   useEffect(() => {
     const fetchData = async () => {
@@ -70,18 +87,23 @@ export default function ChartStudioPage({ params }: PageProps) {
         const chartsRes = await fetch(`/api/clients/${clientId}/charts`)
         const chartsData = await chartsRes.json()
         if (chartsData.success) {
-          setCharts(chartsData.data.map((c: Record<string, unknown>) => ({
-            id: c.id as string,
-            type: c.type as ChartConfig['type'],
-            title: c.title as string,
-            xKey: (c.x_key as string) || 'yearMonth',
-            seriesKeys: c.series_keys as string[],
-            seriesConfig: c.series_config as ChartConfig['seriesConfig'],
-            aggKey: c.agg_key as ChartConfig['aggKey'],
-            store: c.store_override as string | null,
-            showOnDashboard: c.show_on_dashboard as boolean,
-            sortOrder: c.sort_order as number,
-          })))
+          const loadedCharts = chartsData.data.map((c: Record<string, unknown>) => ({
+            chart: {
+              id: c.id as string,
+              type: c.type as ChartConfig['type'],
+              title: c.title as string,
+              xKey: (c.x_key as string) || 'yearMonth',
+              seriesKeys: c.series_keys as string[],
+              seriesConfig: c.series_config as ChartConfig['seriesConfig'],
+              aggKey: c.agg_key as ChartConfig['aggKey'],
+              store: c.store_override as string | null,
+              showOnDashboard: c.show_on_dashboard as boolean,
+              sortOrder: c.sort_order as number,
+            },
+            // 保存されたメトリクス or 現在の設定から復元
+            metrics: (c.metrics as DynamicMetric[]) || [],
+          }))
+          setChartsWithMetrics(loadedCharts)
         }
 
         // 店舗一覧を取得
@@ -95,12 +117,21 @@ export default function ChartStudioPage({ params }: PageProps) {
           console.warn('店舗一覧取得エラー')
         }
 
-        // 月別データを取得
+        // 月別データを取得（部署用APIを優先）
         try {
-          const monthlyRes = await fetch(`/api/clients/${clientId}/data?type=monthly`)
-          const monthlyDataRes = await monthlyRes.json()
-          if (monthlyDataRes.success) {
-            setMonthlyData(monthlyDataRes.data)
+          // まず部署用chart-data APIを試す
+          const entityDataRes = await fetch(`/api/clients/${clientId}/entities/${entityId}/chart-data`)
+          const entityData = await entityDataRes.json()
+
+          if (entityData.success && entityData.data.length > 0) {
+            setMonthlyData(entityData.data)
+          } else {
+            // フォールバック: 従来のデータAPI
+            const monthlyRes = await fetch(`/api/clients/${clientId}/data?type=monthly`)
+            const monthlyDataRes = await monthlyRes.json()
+            if (monthlyDataRes.success) {
+              setMonthlyData(monthlyDataRes.data)
+            }
           }
         } catch {
           console.warn('月別データ取得エラー')
@@ -149,8 +180,8 @@ export default function ChartStudioPage({ params }: PageProps) {
     return max + 10
   }, [charts])
 
-  const handleAddChart = async (chart: ChartConfig) => {
-    setCharts((prev) => [chart, ...prev])
+  const handleAddChart = async (chart: ChartConfig, metrics: DynamicMetric[]) => {
+    setChartsWithMetrics((prev) => [{ chart, metrics }, ...prev])
 
     // APIに保存
     await fetch(`/api/clients/${clientId}/charts`, {
@@ -166,51 +197,62 @@ export default function ChartStudioPage({ params }: PageProps) {
         store_override: chart.store,
         show_on_dashboard: chart.showOnDashboard,
         sort_order: chart.sortOrder,
+        metrics: metrics,  // メトリクス情報も保存
       }),
     })
   }
 
   const handleRemoveChart = async (id: string) => {
-    setCharts((prev) => prev.filter((c) => c.id !== id))
+    setChartsWithMetrics((prev) => prev.filter((cm) => cm.chart.id !== id))
     await fetch(`/api/clients/${clientId}/charts/${id}`, { method: 'DELETE' })
   }
 
   const handleToggleShow = async (id: string) => {
-    setCharts((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, showOnDashboard: !c.showOnDashboard } : c))
+    setChartsWithMetrics((prev) =>
+      prev.map((cm) =>
+        cm.chart.id === id
+          ? { ...cm, chart: { ...cm.chart, showOnDashboard: !cm.chart.showOnDashboard } }
+          : cm
+      )
     )
-    const chart = charts.find((c) => c.id === id)
-    if (chart) {
+    const chartWithMetrics = chartsWithMetrics.find((cm) => cm.chart.id === id)
+    if (chartWithMetrics) {
       await fetch(`/api/clients/${clientId}/charts/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ show_on_dashboard: !chart.showOnDashboard }),
+        body: JSON.stringify({ show_on_dashboard: !chartWithMetrics.chart.showOnDashboard }),
       })
     }
   }
 
   const handleReorder = async (fromId: string, toId: string) => {
-    const sorted = [...charts].sort((a, b) => a.sortOrder - b.sortOrder)
-    const fromIdx = sorted.findIndex((c) => c.id === fromId)
-    const toIdx = sorted.findIndex((c) => c.id === toId)
+    const sorted = [...chartsWithMetrics].sort((a, b) => a.chart.sortOrder - b.chart.sortOrder)
+    const fromIdx = sorted.findIndex((cm) => cm.chart.id === fromId)
+    const toIdx = sorted.findIndex((cm) => cm.chart.id === toId)
     if (fromIdx < 0 || toIdx < 0) return
 
     const [moved] = sorted.splice(fromIdx, 1)
     sorted.splice(toIdx, 0, moved)
 
-    const reordered = sorted.map((c, i) => ({ ...c, sortOrder: (i + 1) * 10 }))
-    setCharts(reordered)
+    const reordered = sorted.map((cm, i) => ({
+      ...cm,
+      chart: { ...cm.chart, sortOrder: (i + 1) * 10 }
+    }))
+    setChartsWithMetrics(reordered)
 
     await fetch(`/api/clients/${clientId}/charts/reorder`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        items: reordered.map((c) => ({ id: c.id, sort_order: c.sortOrder })),
+        items: reordered.map((cm) => ({ id: cm.chart.id, sort_order: cm.chart.sortOrder })),
       }),
     })
   }
 
-  const sortedCharts = useMemo(() => [...charts].sort((a, b) => a.sortOrder - b.sortOrder), [charts])
+  const sortedChartsWithMetrics = useMemo(
+    () => [...chartsWithMetrics].sort((a, b) => a.chart.sortOrder - b.chart.sortOrder),
+    [chartsWithMetrics]
+  )
   const shownCount = charts.filter((c) => c.showOnDashboard).length
 
   if (loading) {
@@ -265,6 +307,8 @@ export default function ChartStudioPage({ params }: PageProps) {
               onChangeGlobalFilters={setGlobalFilters}
               nextSortOrder={nextSortOrder}
               stores={stores}
+              clientId={clientId}
+              entityId={entityId}
             />
             <ChartList
               charts={charts}
@@ -277,12 +321,13 @@ export default function ChartStudioPage({ params }: PageProps) {
           {/* 右: プレビュー */}
           <div className="col-span-7 space-y-4">
             <div className="text-sm text-gray-500">プレビュー（上から3つ表示）</div>
-            {sortedCharts.slice(0, 3).map((c) => (
+            {sortedChartsWithMetrics.slice(0, 3).map((cm) => (
               <ChartRenderer
-                key={c.id}
-                config={c}
+                key={cm.chart.id}
+                config={cm.chart}
                 globalFilters={globalFilters}
                 data={monthlyData}
+                metrics={cm.metrics.length > 0 ? cm.metrics : currentMetrics}
               />
             ))}
             {charts.length === 0 && (
