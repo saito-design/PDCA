@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Building2, LogOut, RefreshCw, FileSpreadsheet, FolderOpen, Plus, Copy, Check, Trash2, AlertTriangle, Cloud, Pencil, ChevronUp, ChevronDown, Upload } from 'lucide-react'
-import { useRef } from 'react'
 import type { Client, SessionData } from '@/lib/types'
 
 interface ClientDataInfo {
@@ -41,15 +40,7 @@ export default function ClientsPage() {
   const [editingClient, setEditingClient] = useState<Client | null>(null)
   const [editName, setEditName] = useState('')
   const [updating, setUpdating] = useState(false)
-  const [uploadingId, setUploadingId] = useState<string | null>(null)
-  const [uploadResult, setUploadResult] = useState<{
-    clientId: string
-    success: boolean
-    message: string
-    details?: { totalRecords: number; totalColumns: number; sheets: string[] }
-  } | null>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [uploadTargetId, setUploadTargetId] = useState<string | null>(null)
+  const [showScriptGuide, setShowScriptGuide] = useState<string | null>(null)
 
   useEffect(() => {
     fetchData()
@@ -276,61 +267,7 @@ export default function ClientsPage() {
 
   const handleUploadClick = (clientId: string, e: React.MouseEvent) => {
     e.stopPropagation()
-    setUploadTargetId(clientId)
-    fileInputRef.current?.click()
-  }
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file || !uploadTargetId) return
-
-    setUploadingId(uploadTargetId)
-    setUploadResult(null)
-
-    try {
-      const formData = new FormData()
-      formData.append('file', file)
-
-      const res = await fetch(`/api/clients/${uploadTargetId}/upload-data`, {
-        method: 'POST',
-        body: formData,
-      })
-      const data = await res.json()
-
-      if (data.success) {
-        setUploadResult({
-          clientId: uploadTargetId,
-          success: true,
-          message: `${data.data.fileName} を変換しました`,
-          details: {
-            totalRecords: data.data.totalRecords,
-            totalColumns: data.data.totalColumns,
-            sheets: data.data.sheets,
-          },
-        })
-        // データ情報を更新
-        fetchData()
-      } else {
-        setUploadResult({
-          clientId: uploadTargetId,
-          success: false,
-          message: data.error || 'アップロードに失敗しました',
-        })
-      }
-    } catch {
-      setUploadResult({
-        clientId: uploadTargetId,
-        success: false,
-        message: 'アップロードに失敗しました',
-      })
-    } finally {
-      setUploadingId(null)
-      setUploadTargetId(null)
-      // ファイル選択をリセット
-      if (fileInputRef.current) {
-        fileInputRef.current.value = ''
-      }
-    }
+    setShowScriptGuide(clientId)
   }
 
   const formatDate = (isoString: string | null) => {
@@ -354,15 +291,6 @@ export default function ClientsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Hidden file input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".xlsx,.xls"
-        onChange={handleFileChange}
-        className="hidden"
-      />
-
       {/* Header */}
       <header className="bg-white shadow">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -473,31 +401,15 @@ export default function ClientsPage() {
                     )}
                   </div>
 
-                  {/* アップロード結果表示 */}
-                  {uploadResult && uploadResult.clientId === client.id && (
-                    <div className={`text-xs p-2 rounded ${uploadResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                      {uploadResult.message}
-                      {uploadResult.details && (
-                        <div className="mt-1 text-gray-600">
-                          {uploadResult.details.totalRecords}件 / {uploadResult.details.sheets.length}シート
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {/* アップロードボタン（Driveの場合） */}
+                  {/* データ変換ガイドボタン（Driveの場合） */}
                   {client.dataInfo.dataSourceType === 'drive' && (
                     <div className="flex items-center justify-end">
                       <button
                         onClick={(e) => handleUploadClick(client.id, e)}
-                        disabled={uploadingId === client.id}
-                        className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                        className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
                       >
-                        <Upload
-                          size={12}
-                          className={uploadingId === client.id ? 'animate-pulse' : ''}
-                        />
-                        {uploadingId === client.id ? 'アップロード中...' : 'Excelアップロード'}
+                        <Upload size={12} />
+                        データ変換
                       </button>
                     </div>
                   )}
@@ -548,31 +460,16 @@ export default function ClientsPage() {
               {/* データソースなしの場合 */}
               {!client.dataInfo?.hasDataSource && (
                 <div className="border-t pt-3 space-y-2">
-                  {/* アップロード結果表示 */}
-                  {uploadResult && uploadResult.clientId === client.id && (
-                    <div className={`text-xs p-2 rounded ${uploadResult.success ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-                      {uploadResult.message}
-                      {uploadResult.details && (
-                        <div className="mt-1 text-gray-600">
-                          {uploadResult.details.totalRecords}件 / {uploadResult.details.sheets.length}シート
-                        </div>
-                      )}
-                    </div>
-                  )}
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-gray-400">
                       データソース未設定
                     </span>
                     <button
                       onClick={(e) => handleUploadClick(client.id, e)}
-                      disabled={uploadingId === client.id}
-                      className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                      className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800"
                     >
-                      <Upload
-                        size={12}
-                        className={uploadingId === client.id ? 'animate-pulse' : ''}
-                      />
-                      {uploadingId === client.id ? 'アップロード中...' : 'Excelアップロード'}
+                      <Upload size={12} />
+                      データ変換
                     </button>
                   </div>
                 </div>
@@ -703,6 +600,49 @@ export default function ClientsPage() {
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
               >
                 {updating ? '更新中...' : '更新'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* データ変換ガイドモーダル */}
+      {showScriptGuide && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl p-6 w-full max-w-lg mx-4">
+            <h3 className="text-lg font-semibold mb-4">データ変換</h3>
+            <div className="space-y-4 text-sm text-gray-700">
+              <p>
+                Excelデータの変換ツールを起動します。
+              </p>
+              <div className="bg-blue-50 rounded-lg p-4 space-y-3">
+                <p className="font-medium text-blue-800">手順:</p>
+                <ol className="list-decimal list-inside space-y-2 text-blue-700">
+                  <li>下のボタンで変換ツールを開く</li>
+                  <li>企業を選択して実行</li>
+                  <li>完了後、自動でGoogle Driveにアップロード</li>
+                </ol>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-600">
+                場所: <code>PDCA/scripts/run_convert.bat</code>
+              </div>
+            </div>
+            <div className="flex flex-col gap-3 mt-6">
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText('C:\\Users\\yasuh\\OneDrive\\デスクトップ\\APP\\PDCA\\scripts\\run_convert.bat')
+                  alert('パスをコピーしました。エクスプローラーのアドレスバーに貼り付けてEnterを押してください。')
+                }}
+                className="w-full px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"
+              >
+                <Copy size={16} />
+                変換ツールのパスをコピー
+              </button>
+              <button
+                onClick={() => setShowScriptGuide(null)}
+                className="w-full px-4 py-2 text-gray-600 hover:text-gray-800 border rounded-lg"
+              >
+                閉じる
               </button>
             </div>
           </div>

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireClientAccess } from '@/lib/auth'
 import { ApiResponse, PdcaIssue, PdcaStatus } from '@/lib/types'
 import { isDriveConfigured } from '@/lib/drive'
 import {
@@ -19,8 +19,8 @@ export async function GET(
   context: RouteParams
 ): Promise<NextResponse<ApiResponse<PdcaIssue[]>>> {
   try {
-    await requireAuth()
     const { clientId, entityId } = await context.params
+    await requireClientAccess(clientId)
 
     if (!clientId || !entityId) {
       return NextResponse.json(
@@ -59,11 +59,19 @@ export async function GET(
       data: filtered,
     })
   } catch (error) {
-    if (error instanceof Error && error.message === 'Unauthorized') {
-      return NextResponse.json(
-        { success: false, error: '認証が必要です' },
-        { status: 401 }
-      )
+    if (error instanceof Error) {
+      if (error.message === 'Unauthorized') {
+        return NextResponse.json(
+          { success: false, error: '認証が必要です' },
+          { status: 401 }
+        )
+      }
+      if (error.message === 'Forbidden') {
+        return NextResponse.json(
+          { success: false, error: 'アクセス権限がありません' },
+          { status: 403 }
+        )
+      }
     }
     console.error('Get issues error:', error)
     return NextResponse.json(
@@ -79,8 +87,8 @@ export async function POST(
   context: RouteParams
 ): Promise<NextResponse<ApiResponse<PdcaIssue>>> {
   try {
-    await requireAuth()
     const { clientId, entityId } = await context.params
+    await requireClientAccess(clientId)
     const body = await request.json()
 
     if (!clientId || !entityId) {
@@ -140,11 +148,19 @@ export async function POST(
       data: newIssue,
     })
   } catch (error) {
-    if (error instanceof Error && error.message === 'Unauthorized') {
-      return NextResponse.json(
-        { success: false, error: '認証が必要です' },
-        { status: 401 }
-      )
+    if (error instanceof Error) {
+      if (error.message === 'Unauthorized') {
+        return NextResponse.json(
+          { success: false, error: '認証が必要です' },
+          { status: 401 }
+        )
+      }
+      if (error.message === 'Forbidden') {
+        return NextResponse.json(
+          { success: false, error: 'アクセス権限がありません' },
+          { status: 403 }
+        )
+      }
     }
     console.error('Create issue error:', error)
     return NextResponse.json(
@@ -160,8 +176,8 @@ export async function PATCH(
   context: RouteParams
 ): Promise<NextResponse<ApiResponse<PdcaIssue>>> {
   try {
-    await requireAuth()
     const { clientId, entityId } = await context.params
+    await requireClientAccess(clientId)
     const body = await request.json()
 
     if (!clientId || !entityId) {
@@ -234,11 +250,19 @@ export async function PATCH(
       data: masterData.issues[idx],
     })
   } catch (error) {
-    if (error instanceof Error && error.message === 'Unauthorized') {
-      return NextResponse.json(
-        { success: false, error: '認証が必要です' },
-        { status: 401 }
-      )
+    if (error instanceof Error) {
+      if (error.message === 'Unauthorized') {
+        return NextResponse.json(
+          { success: false, error: '認証が必要です' },
+          { status: 401 }
+        )
+      }
+      if (error.message === 'Forbidden') {
+        return NextResponse.json(
+          { success: false, error: 'アクセス権限がありません' },
+          { status: 403 }
+        )
+      }
     }
     console.error('Update issue error:', error)
     return NextResponse.json(

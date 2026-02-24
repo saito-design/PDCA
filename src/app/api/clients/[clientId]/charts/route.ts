@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireClientAccess } from '@/lib/auth'
 import { ApiResponse, Chart, ChartType, AggKey } from '@/lib/types'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -42,8 +42,8 @@ export async function GET(
   context: RouteParams
 ): Promise<NextResponse<ApiResponse<Chart[]>>> {
   try {
-    await requireAuth()
     const { clientId } = await context.params
+    await requireClientAccess(clientId)
 
     if (!clientId || typeof clientId !== 'string' || clientId.length > 100) {
       return NextResponse.json(
@@ -63,11 +63,19 @@ export async function GET(
       data: clientCharts,
     })
   } catch (error) {
-    if (error instanceof Error && error.message === 'Unauthorized') {
-      return NextResponse.json(
-        { success: false, error: '認証が必要です' },
-        { status: 401 }
-      )
+    if (error instanceof Error) {
+      if (error.message === 'Unauthorized') {
+        return NextResponse.json(
+          { success: false, error: '認証が必要です' },
+          { status: 401 }
+        )
+      }
+      if (error.message === 'Forbidden') {
+        return NextResponse.json(
+          { success: false, error: 'アクセス権限がありません' },
+          { status: 403 }
+        )
+      }
     }
     console.error('Get charts error:', error)
     return NextResponse.json(
@@ -83,8 +91,8 @@ export async function POST(
   context: RouteParams
 ): Promise<NextResponse<ApiResponse<Chart>>> {
   try {
-    await requireAuth()
     const { clientId } = await context.params
+    await requireClientAccess(clientId)
     const body = await request.json()
 
     // バリデーション
@@ -155,11 +163,19 @@ export async function POST(
       data: newChart,
     })
   } catch (error) {
-    if (error instanceof Error && error.message === 'Unauthorized') {
-      return NextResponse.json(
-        { success: false, error: '認証が必要です' },
-        { status: 401 }
-      )
+    if (error instanceof Error) {
+      if (error.message === 'Unauthorized') {
+        return NextResponse.json(
+          { success: false, error: '認証が必要です' },
+          { status: 401 }
+        )
+      }
+      if (error.message === 'Forbidden') {
+        return NextResponse.json(
+          { success: false, error: 'アクセス権限がありません' },
+          { status: 403 }
+        )
+      }
     }
     console.error('Create chart error:', error)
     return NextResponse.json(

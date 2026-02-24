@@ -93,6 +93,15 @@ export default function LoginPage() {
               開発用アカウント: owner/owner
             </p>
           </div>
+
+          <div className="mt-4">
+            <a
+              href="/junestory"
+              className="block w-full text-center bg-green-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-green-700"
+            >
+              ジュネストリー Dashboard →
+            </a>
+          </div>
         </div>
       </div>
     </div>

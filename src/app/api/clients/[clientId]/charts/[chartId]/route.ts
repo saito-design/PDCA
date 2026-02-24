@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireClientAccess } from '@/lib/auth'
 import { ApiResponse, Chart } from '@/lib/types'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -42,8 +42,8 @@ export async function PATCH(
   context: RouteParams
 ): Promise<NextResponse<ApiResponse<Chart>>> {
   try {
-    await requireAuth()
     const { clientId, chartId } = await context.params
+    await requireClientAccess(clientId)
     const body = await request.json()
 
     if (!clientId || !chartId) {
@@ -119,11 +119,19 @@ export async function PATCH(
       data: updatedChart,
     })
   } catch (error) {
-    if (error instanceof Error && error.message === 'Unauthorized') {
-      return NextResponse.json(
-        { success: false, error: '認証が必要です' },
-        { status: 401 }
-      )
+    if (error instanceof Error) {
+      if (error.message === 'Unauthorized') {
+        return NextResponse.json(
+          { success: false, error: '認証が必要です' },
+          { status: 401 }
+        )
+      }
+      if (error.message === 'Forbidden') {
+        return NextResponse.json(
+          { success: false, error: 'アクセス権限がありません' },
+          { status: 403 }
+        )
+      }
     }
     console.error('Update chart error:', error)
     return NextResponse.json(
@@ -139,8 +147,8 @@ export async function DELETE(
   context: RouteParams
 ): Promise<NextResponse<ApiResponse>> {
   try {
-    await requireAuth()
     const { clientId, chartId } = await context.params
+    await requireClientAccess(clientId)
 
     if (!clientId || !chartId) {
       return NextResponse.json(
@@ -158,11 +166,19 @@ export async function DELETE(
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    if (error instanceof Error && error.message === 'Unauthorized') {
-      return NextResponse.json(
-        { success: false, error: '認証が必要です' },
-        { status: 401 }
-      )
+    if (error instanceof Error) {
+      if (error.message === 'Unauthorized') {
+        return NextResponse.json(
+          { success: false, error: '認証が必要です' },
+          { status: 401 }
+        )
+      }
+      if (error.message === 'Forbidden') {
+        return NextResponse.json(
+          { success: false, error: 'アクセス権限がありません' },
+          { status: 403 }
+        )
+      }
     }
     console.error('Delete chart error:', error)
     return NextResponse.json(

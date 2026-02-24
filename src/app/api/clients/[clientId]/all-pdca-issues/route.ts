@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireClientAccess } from '@/lib/auth'
 import { ApiResponse, PdcaIssue } from '@/lib/types'
 import { isDriveConfigured } from '@/lib/drive'
 import {
@@ -17,8 +17,8 @@ export async function GET(
   context: RouteParams
 ): Promise<NextResponse<ApiResponse<PdcaIssue[]>>> {
   try {
-    await requireAuth()
     const { clientId } = await context.params
+    await requireClientAccess(clientId)
 
     if (!clientId) {
       return NextResponse.json(
@@ -51,6 +51,12 @@ export async function GET(
       return NextResponse.json(
         { success: false, error: '認証が必要です' },
         { status: 401 }
+      )
+    }
+    if (error instanceof Error && error.message === 'Forbidden') {
+      return NextResponse.json(
+        { success: false, error: 'アクセス権限がありません' },
+        { status: 403 }
       )
     }
     console.error('Get all pdca issues error:', error)

@@ -142,14 +142,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
     }
 
     const clientId = generateClientId()
-    console.log('POST /api/clients: creating client', clientId)
 
     // 企業用フォルダを作成
     const pdcaFolderId = getPdcaFolderId()
-    console.log('POST /api/clients: pdcaFolderId =', pdcaFolderId)
-
     const clientFolderId = await ensureFolder(name.trim(), pdcaFolderId)
-    console.log('POST /api/clients: clientFolderId =', clientFolderId)
 
     const newClient: Client = {
       id: clientId,
@@ -157,11 +153,9 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
       drive_folder_id: clientFolderId,
       created_at: new Date().toISOString(),
     }
-    console.log('POST /api/clients: newClient =', JSON.stringify(newClient))
 
     // Drive保存
     const clients = await loadClients()
-    console.log('POST /api/clients: existing clients count =', clients.length)
     clients.push(newClient)
     await saveClients(clients)
 
@@ -176,15 +170,10 @@ export async function POST(request: NextRequest): Promise<NextResponse<ApiRespon
         { status: 401 }
       )
     }
+    // サーバーログには詳細を記録（内部情報はログのみ）
     console.error('Add client error:', error)
-    // デバッグ: 環境変数の状態
-    const hasEmail = !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL
-    const hasKey = !!process.env.GOOGLE_PRIVATE_KEY
-    const hasBase64 = !!process.env.GOOGLE_PRIVATE_KEY_BASE64
-    const folderId = process.env.GOOGLE_DRIVE_PDCA_FOLDER_ID
-    const errorMsg = error instanceof Error ? error.message : String(error)
     return NextResponse.json(
-      { success: false, error: `企業の追加に失敗: ${errorMsg} [Email:${hasEmail}, Key:${hasKey}, Base64:${hasBase64}, Folder:${folderId?.substring(0,8)}...]` },
+      { success: false, error: '企業の追加に失敗しました' },
       { status: 500 }
     )
   }

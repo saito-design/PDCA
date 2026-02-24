@@ -2,21 +2,11 @@
 
 import { useState, useMemo } from 'react'
 import { Save, CheckSquare, Square } from 'lucide-react'
+import { extractTaskStrings } from '@/lib/task-utils'
 
 interface MeetingNotesProps {
   initialNotes?: string
   onSave?: (notes: string) => void
-}
-
-// 【】で囲まれたタスクを抽出
-function extractTasks(text: string): string[] {
-  const regex = /【([^】]+)】/g
-  const tasks: string[] = []
-  let match
-  while ((match = regex.exec(text)) !== null) {
-    tasks.push(match[1].trim())
-  }
-  return tasks
 }
 
 export function MeetingNotes({ initialNotes = '', onSave }: MeetingNotesProps) {
@@ -24,7 +14,7 @@ export function MeetingNotes({ initialNotes = '', onSave }: MeetingNotesProps) {
   const [saving, setSaving] = useState(false)
 
   // タスク抽出
-  const tasks = useMemo(() => extractTasks(notes), [notes])
+  const tasks = useMemo(() => extractTaskStrings(notes), [notes])
 
   const handleSave = async () => {
     if (!onSave) return
@@ -96,6 +86,3 @@ export function MeetingNotes({ initialNotes = '', onSave }: MeetingNotesProps) {
     </div>
   )
 }
-
-// タスク抽出用のユーティリティ関数もエクスポート
-export { extractTasks }

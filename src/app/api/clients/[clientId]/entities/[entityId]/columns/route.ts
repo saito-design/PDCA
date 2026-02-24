@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
-import { loadJsonFromFolder, findFolderByName, getPdcaFolderId } from '@/lib/drive'
+import { requireClientAccess } from '@/lib/auth'
+import { loadJsonFromFolder, findFolderByName, getPdcaFolderId, isDriveConfigured, getDriveClient } from '@/lib/drive'
 
 interface Client {
   id: string
@@ -16,12 +16,52 @@ interface KpiData {
   data: Record<string, unknown>[]
 }
 
+// 縦持ちマスターデータ形式
+interface MasterDataRecord {
+  年月: string
+  部門: string
+  大項目: string
+  中項目: string
+  単位: string
+  区分: string
+  値: number | null
+}
+
+interface MasterDataFile {
+  company_name: string
+  format: string
+  columns: string[]
+  data: MasterDataRecord[]
+  departments?: string[]
+}
+
 interface ColumnInfo {
   name: string
   label: string  // 表示名
   type: 'number' | 'string' | 'date' | 'unknown'
   unit: string   // 単位
   sampleValues: unknown[]
+}
+
+// *_master_data.json を検索
+async function findMasterDataFile(folderId: string): Promise<string | null> {
+  if (!isDriveConfigured()) return null
+  try {
+    const drive = getDriveClient()
+    const res = await drive.files.list({
+      q: `'${folderId}' in parents and trashed=false and name contains '_master_data.json'`,
+      fields: 'files(id, name)',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    })
+    const files = res.data.files || []
+    if (files.length > 0) {
+      return files[0].name || null
+    }
+    return null
+  } catch {
+    return null
+  }
 }
 
 // カラム名から単位を推定
@@ -49,8 +89,8 @@ export async function GET(
   { params }: { params: Promise<{ clientId: string; entityId: string }> }
 ) {
   try {
-    await requireAuth()
     const { clientId, entityId } = await params
+    await requireClientAccess(clientId)
 
     // クライアント情報を取得
     const pdcaFolderId = getPdcaFolderId()
@@ -74,7 +114,50 @@ export async function GET(
       }
     }
 
-    // 部署用KPIデータを探す（優先）
+    // 1. まず *_master_data.json を探す（新形式）
+    const masterFileName = await findMasterDataFile(clientFolderId as string)
+    if (masterFileName) {
+      const masterResult = await loadJsonFromFolder<MasterDataFile>(masterFileName, clientFolderId as string)
+      if (masterResult && masterResult.data.data.length > 0) {
+        // 全データを使用（フィルタなし）
+        const allData = masterResult.data.data
+
+        // ユニークな中項目（カラム）を抽出
+        // キー名は「中項目_区分」の形式で区別
+        const uniqueColumns = new Map<string, { unit: string; values: (number | null)[] }>()
+        for (const row of allData) {
+          // 区分（実績/計画/累計など）を含めたキー名を生成
+          const columnKey = row.区分 && row.区分 !== '実績'
+            ? `${row.中項目}（${row.区分}）`
+            : row.中項目
+
+          if (!uniqueColumns.has(columnKey)) {
+            uniqueColumns.set(columnKey, { unit: row.単位, values: [] })
+          }
+          uniqueColumns.get(columnKey)!.values.push(row.値)
+        }
+
+        const columnInfos: ColumnInfo[] = Array.from(uniqueColumns.entries()).map(([name, info]) => ({
+          name,
+          label: name,
+          type: 'number' as const,
+          unit: info.unit,
+          sampleValues: info.values.filter(v => v !== null).slice(0, 5)
+        }))
+
+        return NextResponse.json({
+          success: true,
+          data: {
+            columns: columnInfos,
+            totalRecords: allData.length,
+            totalColumns: columnInfos.length,
+            source: 'master_data'
+          }
+        })
+      }
+    }
+
+    // 2. フォールバック: 旧形式のファイルを探す
     const kpiFileName = `${entityId}_kpi_data.json`
     let kpiResult = await loadJsonFromFolder<KpiData>(kpiFileName, clientFolderId as string)
 
@@ -89,7 +172,7 @@ export async function GET(
         data: {
           columns: [],
           totalRecords: 0,
-          message: 'KPIデータがありません。CSVをアップロードしてください。'
+          message: 'データがありません。変換ツールでExcelを変換してください。'
         }
       })
     }
@@ -123,13 +206,28 @@ export async function GET(
         columns: columnInfos,
         totalRecords: data.length,
         totalColumns: columnInfos.length,
-        entityName: kpiResult.data.entity_name || entityId
+        entityName: kpiResult.data.entity_name || entityId,
+        source: 'legacy'
       }
     })
 
   } catch (error) {
+    if (error instanceof Error && error.message === 'Unauthorized') {
+      return NextResponse.json(
+        { success: false, error: '認証が必要です' },
+        { status: 401 }
+      )
+    }
+    if (error instanceof Error && error.message === 'Forbidden') {
+      return NextResponse.json(
+        { success: false, error: 'アクセス権限がありません' },
+        { status: 403 }
+      )
+    }
     console.error('Entity Columns API error:', error)
-    const message = error instanceof Error ? error.message : 'カラム取得に失敗しました'
-    return NextResponse.json({ success: false, error: message }, { status: 500 })
+    return NextResponse.json(
+      { success: false, error: 'カラム取得に失敗しました' },
+      { status: 500 }
+    )
   }
 }

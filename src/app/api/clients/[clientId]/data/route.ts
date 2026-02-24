@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireClientAccess } from '@/lib/auth'
 import { getClientFolderId } from '@/lib/entity-helpers'
 import {
   getMonthlySummary as getDriveMonthlySummary,
@@ -15,8 +15,8 @@ type RouteContext = {
 
 export async function GET(request: NextRequest, context: RouteContext) {
   try {
-    await requireAuth()
     const { clientId } = await context.params
+    await requireClientAccess(clientId)
     const { searchParams } = new URL(request.url)
     const department = searchParams.get('department') || undefined
     const type = searchParams.get('type') || 'summary'
@@ -58,10 +58,23 @@ export async function GET(request: NextRequest, context: RouteContext) {
         )
     }
   } catch (error) {
+    if (error instanceof Error) {
+      if (error.message === 'Unauthorized') {
+        return NextResponse.json(
+          { success: false, error: '認証が必要です' },
+          { status: 401 }
+        )
+      }
+      if (error.message === 'Forbidden') {
+        return NextResponse.json(
+          { success: false, error: 'アクセス権限がありません' },
+          { status: 403 }
+        )
+      }
+    }
     console.error('Data API error:', error)
-    const message = error instanceof Error ? error.message : 'データ取得に失敗しました'
     return NextResponse.json(
-      { success: false, error: message },
+      { success: false, error: 'データ取得に失敗しました' },
       { status: 500 }
     )
   }

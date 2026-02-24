@@ -2,7 +2,7 @@
 
 import { useState, useEffect, use } from 'react'
 import { useRouter } from 'next/navigation'
-import { Store, ChevronLeft, LogOut, LayoutDashboard, Eye, Plus, FileText, Pencil, Trash2, ChevronUp, ChevronDown } from 'lucide-react'
+import { Store, ChevronLeft, LogOut, LayoutDashboard, Eye, Plus, FileText, Pencil, Trash2, ChevronUp, ChevronDown, RefreshCw, Database } from 'lucide-react'
 import type { Entity, Client, SessionData } from '@/lib/types'
 
 type PageProps = {
@@ -25,6 +25,12 @@ export default function EntitiesPage({ params }: PageProps) {
   const [updating, setUpdating] = useState(false)
   const [deletingEntity, setDeletingEntity] = useState<Entity | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [dataInfo, setDataInfo] = useState<{
+    fileName: string | null
+    driveFileModifiedTime: string | null
+    hasDataSource: boolean
+  } | null>(null)
+  const [refreshingData, setRefreshingData] = useState(false)
 
   useEffect(() => {
     fetchData()
@@ -59,6 +65,13 @@ export default function EntitiesPage({ params }: PageProps) {
         return
       }
       setEntities(entitiesData.data)
+
+      // データソース情報取得
+      const infoRes = await fetch(`/api/clients/${clientId}/info`)
+      const infoData = await infoRes.json()
+      if (infoData.success) {
+        setDataInfo(infoData.data)
+      }
     } catch {
       setError('データの取得に失敗しました')
     } finally {
@@ -234,6 +247,49 @@ export default function EntitiesPage({ params }: PageProps) {
 
       {/* Main */}
       <main className="max-w-4xl mx-auto px-4 py-8">
+        {/* データソース情報 */}
+        {dataInfo && (
+          <div className="bg-white rounded-xl shadow p-4 mb-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-100 p-2 rounded-lg">
+                  <Database className="text-blue-600" size={20} />
+                </div>
+                <div>
+                  <div className="text-sm font-medium text-gray-700">
+                    {dataInfo.hasDataSource ? (
+                      <>データファイル: {dataInfo.fileName}</>
+                    ) : (
+                      <span className="text-gray-400">データソース未設定</span>
+                    )}
+                  </div>
+                  {dataInfo.driveFileModifiedTime && (
+                    <div className="text-xs text-gray-500">
+                      更新日時: {new Date(dataInfo.driveFileModifiedTime).toLocaleString('ja-JP')}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={async () => {
+                  setRefreshingData(true)
+                  try {
+                    await fetch(`/api/clients/${clientId}/data/refresh`, { method: 'POST' })
+                    await fetchData()
+                  } finally {
+                    setRefreshingData(false)
+                  }
+                }}
+                disabled={refreshingData}
+                className="flex items-center gap-2 px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                <RefreshCw size={14} className={refreshingData ? 'animate-spin' : ''} />
+                {refreshingData ? '更新中...' : 'データ更新'}
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-semibold">部署/店舗を選択</h2>
           <div className="flex items-center gap-2">

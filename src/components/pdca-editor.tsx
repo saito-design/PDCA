@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Save, Sparkles, ChevronDown, ChevronUp, CheckSquare, Square } from 'lucide-react'
+import { extractTaskStrings } from '@/lib/task-utils'
 
 interface PdcaData {
   situation: string
@@ -24,16 +25,6 @@ const FIELDS = [
   { key: 'target', label: '目標（T）', placeholder: '達成目標を記入...', rows: 2 },
 ] as const
 
-// 【】で囲まれたタスクを抽出
-function extractTasks(text: string): string[] {
-  const regex = /【([^】]+)】/g
-  const tasks: string[] = []
-  let match
-  while ((match = regex.exec(text)) !== null) {
-    tasks.push(match[1].trim())
-  }
-  return tasks
-}
 
 export function PdcaEditor({ issueTitle, initialData, onSave, storageKey }: PdcaEditorProps) {
   const localStorageKey = storageKey || 'pdca-draft'
@@ -92,7 +83,7 @@ export function PdcaEditor({ issueTitle, initialData, onSave, storageKey }: Pdca
   }, [data, localStorageKey])
 
   // アクション欄からタスクを抽出
-  const tasks = useMemo(() => extractTasks(data.action), [data.action])
+  const tasks = useMemo(() => extractTaskStrings(data.action), [data.action])
 
   const handleChange = (key: keyof PdcaData, value: string) => {
     setData((prev) => ({ ...prev, [key]: value }))
@@ -203,6 +194,3 @@ export function PdcaEditor({ issueTitle, initialData, onSave, storageKey }: Pdca
     </div>
   )
 }
-
-// タスク抽出関数もエクスポート
-export { extractTasks }

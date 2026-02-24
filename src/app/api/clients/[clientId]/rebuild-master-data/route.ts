@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireClientAccess } from '@/lib/auth'
 import { ApiResponse, PdcaIssue, PdcaCycle, Task } from '@/lib/types'
 import { isDriveConfigured, loadJsonFromFolder, saveJsonToFolder } from '@/lib/drive'
 import { getClientFolderId, loadEntities } from '@/lib/entity-helpers'
@@ -31,8 +31,8 @@ export async function POST(
   context: RouteParams
 ): Promise<NextResponse<ApiResponse<RebuildResult>>> {
   try {
-    await requireAuth()
     const { clientId } = await context.params
+    await requireClientAccess(clientId)
 
     if (!clientId) {
       return NextResponse.json(
@@ -123,6 +123,12 @@ export async function POST(
       return NextResponse.json(
         { success: false, error: '認証が必要です' },
         { status: 401 }
+      )
+    }
+    if (error instanceof Error && error.message === 'Forbidden') {
+      return NextResponse.json(
+        { success: false, error: 'アクセス権限がありません' },
+        { status: 403 }
       )
     }
     console.error('Rebuild master-data error:', error)

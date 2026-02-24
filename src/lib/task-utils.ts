@@ -26,6 +26,14 @@ export function extractTasks(text: string): ExtractedTask[] {
 }
 
 /**
+ * テキストから【】で囲まれたタスク文字列のみを抽出
+ * コンポーネントでのシンプルな使用向け
+ */
+export function extractTaskStrings(text: string): string[] {
+  return extractTasks(text).map(t => t.text)
+}
+
+/**
  * テキスト内の【】部分をハイライト用にパースして返す
  * 通常テキストとタスク部分を分けて返す
  */

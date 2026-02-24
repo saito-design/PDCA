@@ -164,7 +164,7 @@ export function ChartRenderer({ config, globalFilters, data, metrics }: ChartRen
         {title}
         {store && <span className="text-gray-400 ml-2">({store})</span>}
       </div>
-      <ResponsiveContainer width="100%" height={200}>
+      <ResponsiveContainer width="100%" height={220}>
         <ComposedChart data={chartData} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
           <XAxis
@@ -208,7 +208,7 @@ export function ChartRenderer({ config, globalFilters, data, metrics }: ChartRen
               return [value.toLocaleString() + (metric?.unit || ''), metric?.label || String(name)]
             }}
           />
-          <Legend />
+          <Legend wrapperStyle={{ fontSize: '10px', paddingTop: 0, marginTop: -10 }} />
 
           {seriesKeys.map((key, idx) => {
             const metric = activeMetrics.find((m) => m.key === key)

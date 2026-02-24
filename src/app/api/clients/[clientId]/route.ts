@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireClientAccess } from '@/lib/auth'
 import { ApiResponse, Client } from '@/lib/types'
 import {
   isDriveConfigured,
@@ -49,7 +49,6 @@ export async function GET(
   context: RouteParams
 ): Promise<NextResponse<ApiResponse<{ client: Client; stats: ClientStats }>>> {
   try {
-    await requireAuth()
     const { clientId } = await context.params
 
     if (!clientId) {
@@ -58,6 +57,8 @@ export async function GET(
         { status: 400 }
       )
     }
+
+    await requireClientAccess(clientId)
 
     // Google Driveが未設定の場合はエラー
     if (!isDriveConfigured()) {
@@ -91,11 +92,19 @@ export async function GET(
       data: { client, stats },
     })
   } catch (error) {
-    if (error instanceof Error && error.message === 'Unauthorized') {
-      return NextResponse.json(
-        { success: false, error: '認証が必要です' },
-        { status: 401 }
-      )
+    if (error instanceof Error) {
+      if (error.message === 'Unauthorized') {
+        return NextResponse.json(
+          { success: false, error: '認証が必要です' },
+          { status: 401 }
+        )
+      }
+      if (error.message === 'Forbidden') {
+        return NextResponse.json(
+          { success: false, error: 'アクセス権限がありません' },
+          { status: 403 }
+        )
+      }
     }
     console.error('Get client error:', error)
     return NextResponse.json(
@@ -111,7 +120,6 @@ export async function PATCH(
   context: RouteParams
 ): Promise<NextResponse<ApiResponse<Client>>> {
   try {
-    await requireAuth()
     const { clientId } = await context.params
     const body = await request.json()
     const { name } = body
@@ -122,6 +130,8 @@ export async function PATCH(
         { status: 400 }
       )
     }
+
+    await requireClientAccess(clientId)
 
     if (!name || typeof name !== 'string' || name.length > 100) {
       return NextResponse.json(
@@ -155,11 +165,19 @@ export async function PATCH(
       data: clients[clientIndex],
     })
   } catch (error) {
-    if (error instanceof Error && error.message === 'Unauthorized') {
-      return NextResponse.json(
-        { success: false, error: '認証が必要です' },
-        { status: 401 }
-      )
+    if (error instanceof Error) {
+      if (error.message === 'Unauthorized') {
+        return NextResponse.json(
+          { success: false, error: '認証が必要です' },
+          { status: 401 }
+        )
+      }
+      if (error.message === 'Forbidden') {
+        return NextResponse.json(
+          { success: false, error: 'アクセス権限がありません' },
+          { status: 403 }
+        )
+      }
     }
     console.error('Update client error:', error)
     return NextResponse.json(
@@ -175,7 +193,6 @@ export async function DELETE(
   context: RouteParams
 ): Promise<NextResponse<ApiResponse>> {
   try {
-    await requireAuth()
     const { clientId } = await context.params
 
     if (!clientId) {
@@ -184,6 +201,8 @@ export async function DELETE(
         { status: 400 }
       )
     }
+
+    await requireClientAccess(clientId)
 
     // Google Driveが未設定の場合はエラー
     if (!isDriveConfigured()) {
@@ -222,11 +241,19 @@ export async function DELETE(
 
     return NextResponse.json({ success: true })
   } catch (error) {
-    if (error instanceof Error && error.message === 'Unauthorized') {
-      return NextResponse.json(
-        { success: false, error: '認証が必要です' },
-        { status: 401 }
-      )
+    if (error instanceof Error) {
+      if (error.message === 'Unauthorized') {
+        return NextResponse.json(
+          { success: false, error: '認証が必要です' },
+          { status: 401 }
+        )
+      }
+      if (error.message === 'Forbidden') {
+        return NextResponse.json(
+          { success: false, error: 'アクセス権限がありません' },
+          { status: 403 }
+        )
+      }
     }
     console.error('Delete client error:', error)
     return NextResponse.json(

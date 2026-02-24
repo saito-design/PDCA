@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireClientAccess } from '@/lib/auth'
 import { ApiResponse, Entity, Client } from '@/lib/types'
 import {
   isDriveConfigured,
@@ -56,8 +56,8 @@ export async function PATCH(
   context: RouteParams
 ): Promise<NextResponse<ApiResponse<Entity>>> {
   try {
-    await requireAuth()
     const { clientId, entityId } = await context.params
+    await requireClientAccess(clientId)
     const body = await request.json()
     const { name } = body
 
@@ -105,11 +105,19 @@ export async function PATCH(
       data: entities[entityIndex],
     })
   } catch (error) {
-    if (error instanceof Error && error.message === 'Unauthorized') {
-      return NextResponse.json(
-        { success: false, error: '認証が必要です' },
-        { status: 401 }
-      )
+    if (error instanceof Error) {
+      if (error.message === 'Unauthorized') {
+        return NextResponse.json(
+          { success: false, error: '認証が必要です' },
+          { status: 401 }
+        )
+      }
+      if (error.message === 'Forbidden') {
+        return NextResponse.json(
+          { success: false, error: 'アクセス権限がありません' },
+          { status: 403 }
+        )
+      }
     }
     console.error('Update entity error:', error)
     return NextResponse.json(
@@ -125,8 +133,8 @@ export async function DELETE(
   context: RouteParams
 ): Promise<NextResponse<ApiResponse<{ deleted: boolean }>>> {
   try {
-    await requireAuth()
     const { clientId, entityId } = await context.params
+    await requireClientAccess(clientId)
 
     // Google Driveが未設定の場合はエラー
     if (!isDriveConfigured()) {
@@ -164,11 +172,19 @@ export async function DELETE(
       data: { deleted: true },
     })
   } catch (error) {
-    if (error instanceof Error && error.message === 'Unauthorized') {
-      return NextResponse.json(
-        { success: false, error: '認証が必要です' },
-        { status: 401 }
-      )
+    if (error instanceof Error) {
+      if (error.message === 'Unauthorized') {
+        return NextResponse.json(
+          { success: false, error: '認証が必要です' },
+          { status: 401 }
+        )
+      }
+      if (error.message === 'Forbidden') {
+        return NextResponse.json(
+          { success: false, error: 'アクセス権限がありません' },
+          { status: 403 }
+        )
+      }
     }
     console.error('Delete entity error:', error)
     return NextResponse.json(

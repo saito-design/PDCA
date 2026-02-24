@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireClientAccess } from '@/lib/auth'
 import { ApiResponse, Task, PdcaStatus } from '@/lib/types'
 import { isDriveConfigured } from '@/lib/drive'
 import {
@@ -19,8 +19,8 @@ export async function PATCH(
   context: RouteParams
 ): Promise<NextResponse<ApiResponse<Task>>> {
   try {
-    await requireAuth()
     const { clientId, entityId, taskId } = await context.params
+    await requireClientAccess(clientId)
     const body = await request.json()
 
     if (!clientId || !entityId || !taskId) {
@@ -99,6 +99,12 @@ export async function PATCH(
         { status: 401 }
       )
     }
+    if (error instanceof Error && error.message === 'Forbidden') {
+      return NextResponse.json(
+        { success: false, error: 'アクセス権限がありません' },
+        { status: 403 }
+      )
+    }
     console.error('Update task error:', error)
     return NextResponse.json(
       { success: false, error: 'タスクの更新に失敗しました' },
@@ -113,8 +119,8 @@ export async function DELETE(
   context: RouteParams
 ): Promise<NextResponse<ApiResponse<null>>> {
   try {
-    await requireAuth()
     const { clientId, entityId, taskId } = await context.params
+    await requireClientAccess(clientId)
 
     if (!clientId || !entityId || !taskId) {
       return NextResponse.json(
@@ -164,6 +170,12 @@ export async function DELETE(
       return NextResponse.json(
         { success: false, error: '認証が必要です' },
         { status: 401 }
+      )
+    }
+    if (error instanceof Error && error.message === 'Forbidden') {
+      return NextResponse.json(
+        { success: false, error: 'アクセス権限がありません' },
+        { status: 403 }
       )
     }
     console.error('Delete task error:', error)

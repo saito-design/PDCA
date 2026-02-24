@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
-import { loadJsonFromFolder, findFolderByName, getPdcaFolderId } from '@/lib/drive'
+import { requireClientAccess } from '@/lib/auth'
+import { loadJsonFromFolder, findFolderByName, getPdcaFolderId, getDriveClient, isDriveConfigured } from '@/lib/drive'
 
 interface Client {
   id: string
@@ -8,9 +8,37 @@ interface Client {
   drive_folder_id?: string
 }
 
-interface UnifiedData {
-  columns: string[]
+// master_data.json の構造（Pythonスクリプトで生成）
+interface MasterData {
+  company_name?: string
+  generated_at?: string
+  format?: string
+  columns?: string[]
+  total_records?: number
+  departments?: string[]
   data: Record<string, unknown>[]
+}
+
+// *_master_data.json ファイルを検索
+async function findMasterDataFile(folderId: string): Promise<string | null> {
+  if (!isDriveConfigured()) return null
+
+  try {
+    const drive = getDriveClient()
+    const res = await drive.files.list({
+      q: `'${folderId}' in parents and trashed=false and name contains '_master_data.json'`,
+      fields: 'files(id, name)',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    })
+    const files = res.data.files || []
+    if (files.length > 0) {
+      return files[0].name || null
+    }
+    return null
+  } catch {
+    return null
+  }
 }
 
 interface ColumnInfo {
@@ -44,8 +72,8 @@ export async function GET(
   { params }: { params: Promise<{ clientId: string }> }
 ) {
   try {
-    await requireAuth()
     const { clientId } = await params
+    await requireClientAccess(clientId)
 
     // クライアント情報を取得
     const pdcaFolderId = getPdcaFolderId()
@@ -69,13 +97,20 @@ export async function GET(
       }
     }
 
-    // unified_data.jsonを読み込み
-    const unifiedResult = await loadJsonFromFolder<UnifiedData>('unified_data.json', clientFolderId as string)
-    if (!unifiedResult) {
-      return NextResponse.json({ success: false, error: 'unified_data.jsonが見つかりません' }, { status: 404 })
+    // *_master_data.json を検索して読み込み
+    const masterDataFileName = await findMasterDataFile(clientFolderId as string)
+    if (!masterDataFileName) {
+      return NextResponse.json({ success: false, error: 'master_data.jsonが見つかりません' }, { status: 404 })
     }
 
-    const { columns, data } = unifiedResult.data
+    const masterResult = await loadJsonFromFolder<MasterData>(masterDataFileName, clientFolderId as string)
+    if (!masterResult) {
+      return NextResponse.json({ success: false, error: 'master_data.jsonの読み込みに失敗しました' }, { status: 404 })
+    }
+
+    const { data } = masterResult.data
+    // データから列名を抽出
+    const columns = data.length > 0 ? Object.keys(data[0]) : []
 
     // 各カラムの情報を生成
     const columnInfos: ColumnInfo[] = columns.map(colName => {
@@ -104,8 +139,22 @@ export async function GET(
     })
 
   } catch (error) {
+    if (error instanceof Error && error.message === 'Unauthorized') {
+      return NextResponse.json(
+        { success: false, error: '認証が必要です' },
+        { status: 401 }
+      )
+    }
+    if (error instanceof Error && error.message === 'Forbidden') {
+      return NextResponse.json(
+        { success: false, error: 'アクセス権限がありません' },
+        { status: 403 }
+      )
+    }
     console.error('Columns API error:', error)
-    const message = error instanceof Error ? error.message : 'カラム取得に失敗しました'
-    return NextResponse.json({ success: false, error: message }, { status: 500 })
+    return NextResponse.json(
+      { success: false, error: 'カラム取得に失敗しました' },
+      { status: 500 }
+    )
   }
 }

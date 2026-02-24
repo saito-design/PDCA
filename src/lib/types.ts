@@ -16,6 +16,71 @@ export interface Entity {
   created_at: string
 }
 
+// 店舗（飲食店向け拡張）
+export type BrandType = 'kintaro' | 'toriyaro' | 'kintaro_single' | 'uoemon'
+export type StoreRank = 'S' | 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'H' | 'I'
+export type LocationType = '繁華街、主要駅前' | '学生街、オフィス街' | 'ベッドタウン' | 'その他'
+
+export interface Store extends Entity {
+  store_code: string           // 店舗コード: 1102, 2301等
+  brand: BrandType             // 業態コード
+  brand_name: string           // 業態名: 均タロー, 鶏ヤロー等
+  rank: StoreRank              // 店舗ランク: A-I
+  rank_score: number           // ランク得点: 35-70
+  location_type: LocationType  // 立地タイプ
+  manager_id?: string          // 店長社員番号
+  manager_name: string         // 店長名
+  management_score?: number    // マネジメントスコア
+  opened_at?: string           // 開店日
+}
+
+// POSデータレコード（縦持ち形式）
+export interface PosRecord {
+  年月: string           // "2025-12"
+  店舗コード: string     // "2305"
+  店舗名: string         // "鶏ヤロー!歌舞伎町2号店"
+  大項目: string         // "売上", "客数", "単品"
+  中項目: string         // "純売上高", "客単価", 商品名等
+  単位: string           // "円", "人", "個"
+  区分: string           // "実績", "前年", "計画"
+  値: number | null
+}
+
+// POSデータファイル
+export interface PosDataFile {
+  company_name: string
+  generated_at: string
+  format: 'long'
+  source_files: string[]
+  total_records: number
+  stores: string[]
+  data: PosRecord[]
+}
+
+// 損益データレコード（縦持ち形式）
+export interface PlRecord {
+  年月: string           // "2025-12"
+  店舗コード: string     // "002"
+  店舗名: string         // "鶏ヤロー蒲田"
+  大項目: string         // "売上高", "売上原価", "販管費"
+  中項目: string         // 勘定科目名
+  単位: '円'
+  区分: string           // "実績", "計画"
+  値: number | null
+}
+
+// 損益データファイル
+export interface PlDataFile {
+  company_name: string
+  generated_at: string
+  format: 'long'
+  source_file: string
+  store_mapping: Record<string, string>
+  total_records: number
+  stores: string[]
+  data: PlRecord[]
+}
+
 // ユーザー
 export interface User {
   id: string

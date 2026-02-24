@@ -65,3 +65,21 @@ export async function requireAdmin(): Promise<SessionData> {
   }
   return session
 }
+
+// クライアントアクセス認可チェック
+// adminは全クライアントにアクセス可能、一般ユーザーは自分のクライアントのみ
+export async function requireClientAccess(clientId: string): Promise<SessionData> {
+  const session = await requireAuth()
+
+  // adminは全クライアントにアクセス可能
+  if (session.role === 'admin') {
+    return session
+  }
+
+  // 一般ユーザーは自分のクライアントのみ
+  if (!session.clientId || session.clientId !== clientId) {
+    throw new Error('Forbidden')
+  }
+
+  return session
+}

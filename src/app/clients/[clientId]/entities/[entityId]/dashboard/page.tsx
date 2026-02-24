@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, use, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, LogOut, PenTool, RefreshCw, Settings2, X, PanelLeftClose, PanelLeftOpen, Save, Database } from 'lucide-react'
+import { ChevronLeft, LogOut, PenTool, Settings2, X, PanelLeftClose, PanelLeftOpen, Save, Database } from 'lucide-react'
 import ColumnSelector from '@/components/column-selector'
 import type { SelectedColumn } from '@/lib/column-storage'
 import { getSelectedColumns } from '@/lib/column-storage'
@@ -12,15 +12,14 @@ import { ChartRenderer, COLOR_PALETTE } from '@/components/chart-renderer'
 import { PdcaEditor } from '@/components/pdca-editor'
 import { MeetingHistory } from '@/components/meeting-history'
 import { ReportExportButton } from '@/components/report-export-button'
-import { SalesChart } from '@/components/sales-chart'
+// SalesChart は削除 - グラフ作成で自作可能
 import { TaskManager } from '@/components/task-manager'
 
 interface KpiData {
   key: string
   name: string
-  target: number
-  actual: number
-  prevYear: number | null
+  actual: number      // 実績累計
+  plan: number        // 計画累計
   unit?: string
 }
 
@@ -72,8 +71,6 @@ export default function DashboardPage({ params }: PageProps) {
   const [monthlySummary, setMonthlySummary] = useState<MonthlySummary[]>([])
   const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([])
   const [dataLoading, setDataLoading] = useState(false)
-  const [cacheUpdatedAt, setCacheUpdatedAt] = useState<string | null>(null)
-  const [refreshing, setRefreshing] = useState(false)
 
   // KPI表示設定
   const [hiddenKpis, setHiddenKpis] = useState<string[]>([])
@@ -168,17 +165,6 @@ export default function DashboardPage({ params }: PageProps) {
           setCharts(allCharts.filter((c: ChartConfig) => c.showOnDashboard))
         }
 
-        // キャッシュ更新日時を取得（廃止予定）
-        try {
-          const cacheRes = await fetch(`/api/clients/${clientId}/data/refresh`)
-          const cacheData = await cacheRes.json()
-          if (cacheData.success && cacheData.updatedAt) {
-            setCacheUpdatedAt(cacheData.updatedAt)
-          }
-        } catch {
-          // 無視
-        }
-
         // サイクル履歴を取得（entity_idでフィルタ）
         setCyclesLoading(true)
         try {
@@ -225,27 +211,98 @@ export default function DashboardPage({ params }: PageProps) {
 
       setDataLoading(true)
       try {
-        const deptParam = `&department=${encodeURIComponent(entity.name)}`
+        // 新しい chart-data API からデータ取得（master_data.json対応）
+        const chartDataRes = await fetch(`/api/clients/${clientId}/entities/${entityId}/chart-data`)
+        const chartData = await chartDataRes.json()
 
-        // KPIデータ取得
-        const kpiRes = await fetch(`/api/clients/${clientId}/data?type=kpi${deptParam}`)
-        const kpiData = await kpiRes.json()
-        if (kpiData.success) {
-          setKpis(kpiData.data)
-        }
+        if (chartData.success && chartData.data.length > 0) {
+          // グラフ用データを設定
+          setMonthlyData(chartData.data)
 
-        // 月別サマリー取得
-        const summaryRes = await fetch(`/api/clients/${clientId}/data?type=summary${deptParam}`)
-        const summaryData = await summaryRes.json()
-        if (summaryData.success) {
-          setMonthlySummary(summaryData.data)
-        }
+          // KPIデータは最新月のデータから生成
+          // グラフで選択されたカラムの「累計」版を使用
+          const latestMonth = chartData.data[chartData.data.length - 1]
+          const savedColumns = getSelectedColumns(clientId, entityId)
+          const columns = chartData.columns || []
 
-        // 月別データ取得（グラフ用）
-        const monthlyRes = await fetch(`/api/clients/${clientId}/data?type=monthly${deptParam}`)
-        const monthlyDataRes = await monthlyRes.json()
-        if (monthlyDataRes.success) {
-          setMonthlyData(monthlyDataRes.data)
+          let generatedKpis: KpiData[] = []
+
+          if (savedColumns.length > 0) {
+            // 選択されたカラムから累計KPIを生成
+            generatedKpis = savedColumns
+              .filter(col => col.type === 'number')
+              .map((col) => {
+                // ベースカラム名を取得（「（実績）」などを除去）
+                const baseName = col.name.replace(/（[^）]+）$/, '')
+
+                // 実績累計と計画累計のキーを生成
+                const actualKey = `${baseName}（実績累計）`
+                const planKey = `${baseName}（計画累計）`
+
+                // 最新月から値を取得
+                const actualValue = latestMonth[actualKey] ?? latestMonth[col.name] ?? 0
+                const planValue = latestMonth[planKey] ?? 0
+
+                return {
+                  key: col.name,
+                  name: col.label || baseName,
+                  actual: Number(actualValue) || 0,
+                  plan: Number(planValue) || 0,
+                  unit: col.unit || '',
+                }
+              })
+              .filter(kpi => kpi.actual !== 0 || kpi.plan !== 0)
+          } else {
+            // フォールバック: 累計カラムから自動生成（最大6項目）
+            const cumulativeColumns = columns.filter((col: string) =>
+              col.includes('（実績累計）')
+            )
+            generatedKpis = cumulativeColumns.slice(0, 6).map((col: string) => {
+              const baseName = col.replace('（実績累計）', '')
+              const planKey = `${baseName}（計画累計）`
+              return {
+                key: col,
+                name: baseName,
+                actual: Number(latestMonth[col]) || 0,
+                plan: Number(latestMonth[planKey]) || 0,
+                unit: '',
+              }
+            }).filter((kpi: KpiData) => kpi.actual !== 0 || kpi.plan !== 0)
+          }
+
+          setKpis(generatedKpis)
+
+          // 月別サマリーも同じデータから生成
+          const summary = chartData.data.map((row: Record<string, unknown>) => ({
+            yearMonth: row.yearMonth as string,
+            sales: (row['売上'] ?? row['宿泊料'] ?? row['室料合計'] ?? 0) as number,
+            customers: (row['宿泊人数'] ?? row['利用客数'] ?? 0) as number,
+            customerPrice: 0,
+            prevYearSales: null,
+            prevYearCustomers: null,
+          }))
+          setMonthlySummary(summary)
+        } else {
+          // フォールバック: 旧API
+          const deptParam = `&department=${encodeURIComponent(entity.name)}`
+
+          const kpiRes = await fetch(`/api/clients/${clientId}/data?type=kpi${deptParam}`)
+          const kpiData = await kpiRes.json()
+          if (kpiData.success) {
+            setKpis(kpiData.data)
+          }
+
+          const summaryRes = await fetch(`/api/clients/${clientId}/data?type=summary${deptParam}`)
+          const summaryData = await summaryRes.json()
+          if (summaryData.success) {
+            setMonthlySummary(summaryData.data)
+          }
+
+          const monthlyRes = await fetch(`/api/clients/${clientId}/data?type=monthly${deptParam}`)
+          const monthlyDataRes = await monthlyRes.json()
+          if (monthlyDataRes.success) {
+            setMonthlyData(monthlyDataRes.data)
+          }
         }
       } catch (error) {
         console.error('Department data fetch error:', error)
@@ -400,34 +457,6 @@ export default function DashboardPage({ params }: PageProps) {
     }
   }
 
-  const handleRefreshData = async () => {
-    if (!entity?.name) return
-
-    setRefreshing(true)
-    try {
-      // データを再取得（部門ベース）
-      setDataLoading(true)
-      const deptParam = `&department=${encodeURIComponent(entity.name)}`
-      const [kpiRes, summaryRes, monthlyRes] = await Promise.all([
-        fetch(`/api/clients/${clientId}/data?type=kpi${deptParam}`),
-        fetch(`/api/clients/${clientId}/data?type=summary${deptParam}`),
-        fetch(`/api/clients/${clientId}/data?type=monthly${deptParam}`),
-      ])
-      const kpiData = await kpiRes.json()
-      const summaryData = await summaryRes.json()
-      const monthlyDataRes = await monthlyRes.json()
-      if (kpiData.success) setKpis(kpiData.data)
-      if (summaryData.success) setMonthlySummary(summaryData.data)
-      if (monthlyDataRes.success) setMonthlyData(monthlyDataRes.data)
-      setDataLoading(false)
-    } catch (error) {
-      console.error('Refresh error:', error)
-      alert('データ更新に失敗しました')
-    } finally {
-      setRefreshing(false)
-    }
-  }
-
   const sortedCharts = useMemo(
     () => [...charts].sort((a, b) => a.sortOrder - b.sortOrder),
     [charts]
@@ -438,8 +467,8 @@ export default function DashboardPage({ params }: PageProps) {
     .filter((k) => !hiddenKpis.includes(k.key))
     .map((k) => ({
       name: k.name,
-      target: k.target,
-      actual: k.actual,
+      target: k.plan,    // 計画累計
+      actual: k.actual,  // 実績累計
       unit: k.unit,
     }))
 
@@ -492,15 +521,6 @@ export default function DashboardPage({ params }: PageProps) {
                 <div className="flex items-center justify-between mb-4">
                   <h2 className="text-lg font-bold">データ表示</h2>
                   <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleRefreshData}
-                      disabled={refreshing}
-                      className="flex items-center gap-1 text-sm text-orange-600 hover:text-orange-700 disabled:opacity-50"
-                      title="データを更新"
-                    >
-                      <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
-                      更新
-                    </button>
                     <button
                       onClick={() => setShowKpiSettings(true)}
                       className="text-gray-400 hover:text-gray-600"
@@ -582,14 +602,7 @@ export default function DashboardPage({ params }: PageProps) {
                 )}
               </div>
 
-              {/* 売上推移グラフ */}
-              <SalesChart
-                data={monthlySummary}
-                loading={dataLoading}
-                lastN={globalFilters.lastN}
-              />
-
-              {/* Charts */}
+              {/* Charts - グラフ作成で自由に追加可能 */}
               {sortedCharts.map((chart) => (
                 <ChartRenderer
                   key={chart.id}

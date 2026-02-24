@@ -7,7 +7,7 @@
  * 区分: 実績, 計画, 実績累計, 計画累計
  */
 
-import { loadJsonFromFolder } from '@/lib/drive'
+import { loadJsonFromFolder, getDriveClient, isDriveConfigured } from '@/lib/drive'
 import { getClientFolderId } from '@/lib/entity-helpers'
 
 // 縦持ちレコードの型
@@ -21,13 +21,14 @@ export interface LongFormatRecord {
   値: number | null
 }
 
-// unified_data.json の構造
-interface UnifiedData {
-  source_file?: string
-  converted_at?: string
-  client_id?: string
-  client_name?: string
+// master_data.json の構造（Pythonスクリプトで生成）
+interface MasterData {
+  company_name?: string
+  generated_at?: string
+  format?: string
+  columns?: string[]
   total_records?: number
+  departments?: string[]
   data: LongFormatRecord[]
 }
 
@@ -52,7 +53,31 @@ const dataCache = new Map<string, { data: LongFormatRecord[], timestamp: number 
 const CACHE_TTL = 5 * 60 * 1000 // 5分
 
 /**
- * DriveからunifiedデータをJSON形式で読み込む
+ * *_master_data.json ファイルを検索
+ */
+async function findMasterDataFile(folderId: string): Promise<string | null> {
+  if (!isDriveConfigured()) return null
+
+  try {
+    const drive = getDriveClient()
+    const res = await drive.files.list({
+      q: `'${folderId}' in parents and trashed=false and name contains '_master_data.json'`,
+      fields: 'files(id, name)',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    })
+    const files = res.data.files || []
+    if (files.length > 0) {
+      return files[0].name || null
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Driveからmaster_dataをJSON形式で読み込む
  */
 export async function loadUnifiedData(clientId: string): Promise<LongFormatRecord[]> {
   // キャッシュチェック
@@ -67,12 +92,16 @@ export async function loadUnifiedData(clientId: string): Promise<LongFormatRecor
   }
 
   try {
-    // unified_data.json または *_master_data.json を試す
-    let result = await loadJsonFromFolder<UnifiedData>('unified_data.json', clientFolderId)
+    // *_master_data.json を検索
+    const masterDataFileName = await findMasterDataFile(clientFolderId)
+    if (!masterDataFileName) {
+      console.warn('master_data.json が見つかりません')
+      return []
+    }
+
+    const result = await loadJsonFromFolder<MasterData>(masterDataFileName, clientFolderId)
 
     if (!result?.data?.data) {
-      // 別のファイル名を試す（kagoshima_master_data.json など）
-      // files APIで検索するのが理想だが、まずはunified_data.jsonのみ対応
       return []
     }
 
@@ -80,7 +109,7 @@ export async function loadUnifiedData(clientId: string): Promise<LongFormatRecor
     dataCache.set(clientId, { data: records, timestamp: Date.now() })
     return records
   } catch (error) {
-    console.error('loadUnifiedData error:', error)
+    console.error('loadMasterData error:', error)
     return []
   }
 }

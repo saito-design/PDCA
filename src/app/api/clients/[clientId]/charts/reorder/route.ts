@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireClientAccess } from '@/lib/auth'
 import { ApiResponse, Chart } from '@/lib/types'
 import * as fs from 'fs'
 import * as path from 'path'
@@ -47,8 +47,8 @@ export async function POST(
   context: RouteParams
 ): Promise<NextResponse<ApiResponse>> {
   try {
-    await requireAuth()
     const { clientId } = await context.params
+    await requireClientAccess(clientId)
     const body = await request.json()
 
     if (!clientId) {
@@ -98,6 +98,12 @@ export async function POST(
       return NextResponse.json(
         { success: false, error: '認証が必要です' },
         { status: 401 }
+      )
+    }
+    if (error instanceof Error && error.message === 'Forbidden') {
+      return NextResponse.json(
+        { success: false, error: 'アクセス権限がありません' },
+        { status: 403 }
       )
     }
     console.error('Reorder charts error:', error)

@@ -146,6 +146,64 @@ export default function ColumnSelector({
     }
   }
 
+  // フィルター関数
+  const applyFilter = (filterFn: (col: ColumnInfo) => boolean, select: boolean) => {
+    setSelected(prev => {
+      const newMap = new Map(prev)
+      columns.filter(filterFn).forEach(col => {
+        if (select) {
+          newMap.set(col.name, {
+            name: col.name,
+            label: col.label || col.name,
+            type: col.type,
+            unit: col.unit || (col.type === 'number' ? '' : undefined)
+          })
+        } else {
+          newMap.delete(col.name)
+        }
+      })
+      return newMap
+    })
+  }
+
+  // クイックフィルター定義
+  const quickFilters = [
+    {
+      label: '全解除',
+      action: () => setSelected(new Map()),
+      variant: 'danger' as const
+    },
+    {
+      label: '会計データ',
+      action: () => applyFilter(col => col.name.startsWith('PL_') || col.name.includes('売上高') || col.name.includes('原価') || col.name.includes('利益'), true),
+      variant: 'default' as const
+    },
+    {
+      label: 'POSレジ指標',
+      action: () => applyFilter(col =>
+        (col.name.startsWith('POS_') || col.name.includes('売上') || col.name.includes('客数') || col.name.includes('客単価')) &&
+        !col.name.includes('単品'), true),
+      variant: 'default' as const
+    },
+    {
+      label: 'POS単品',
+      action: () => applyFilter(col => col.name.includes('単品'), true),
+      variant: 'default' as const
+    },
+    {
+      label: '利益関連',
+      action: () => applyFilter(col => col.name.includes('利益') || col.name.includes('粗利'), true),
+      variant: 'success' as const
+    },
+    {
+      label: 'コスト',
+      action: () => applyFilter(col =>
+        col.name.includes('原価') || col.name.includes('人件費') || col.name.includes('給与') ||
+        col.name.includes('賃借料') || col.name.includes('家賃') || col.name.includes('光熱'), true),
+      variant: 'warning' as const
+    },
+  ]
+
   const filteredColumns = showSystemColumns
     ? columns
     : columns.filter(col => !col.isSystem)

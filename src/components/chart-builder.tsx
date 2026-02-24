@@ -179,7 +179,7 @@ export function ChartBuilder({
       seriesConfig,
       aggKey,
       store: null,  // 部門ベースに移行のため廃止
-      showOnDashboard: false,
+      showOnDashboard: true,
       sortOrder: nextSortOrder,
     }, selectedMetrics)
 

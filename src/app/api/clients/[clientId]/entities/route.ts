@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireClientAccess } from '@/lib/auth'
 import { ApiResponse, Entity, Client } from '@/lib/types'
 import {
   isDriveConfigured,
@@ -56,7 +56,6 @@ export async function GET(
   context: RouteParams
 ): Promise<NextResponse<ApiResponse<Entity[]>>> {
   try {
-    await requireAuth()
     const { clientId } = await context.params
 
     // 入力値バリデーション
@@ -66,6 +65,8 @@ export async function GET(
         { status: 400 }
       )
     }
+
+    await requireClientAccess(clientId)
 
     // Google Driveが未設定の場合
     if (!isDriveConfigured()) {
@@ -91,11 +92,19 @@ export async function GET(
       data: entities,
     })
   } catch (error) {
-    if (error instanceof Error && error.message === 'Unauthorized') {
-      return NextResponse.json(
-        { success: false, error: '認証が必要です' },
-        { status: 401 }
-      )
+    if (error instanceof Error) {
+      if (error.message === 'Unauthorized') {
+        return NextResponse.json(
+          { success: false, error: '認証が必要です' },
+          { status: 401 }
+        )
+      }
+      if (error.message === 'Forbidden') {
+        return NextResponse.json(
+          { success: false, error: 'アクセス権限がありません' },
+          { status: 403 }
+        )
+      }
     }
     console.error('Get entities error:', error)
     return NextResponse.json(
@@ -111,8 +120,9 @@ export async function PATCH(
   context: RouteParams
 ): Promise<NextResponse<ApiResponse<Entity[]>>> {
   try {
-    await requireAuth()
     const { clientId } = await context.params
+    await requireClientAccess(clientId)
+
     const body = await request.json()
     const { orderedIds } = body
 
@@ -156,11 +166,19 @@ export async function PATCH(
       data: newEntities,
     })
   } catch (error) {
-    if (error instanceof Error && error.message === 'Unauthorized') {
-      return NextResponse.json(
-        { success: false, error: '認証が必要です' },
-        { status: 401 }
-      )
+    if (error instanceof Error) {
+      if (error.message === 'Unauthorized') {
+        return NextResponse.json(
+          { success: false, error: '認証が必要です' },
+          { status: 401 }
+        )
+      }
+      if (error.message === 'Forbidden') {
+        return NextResponse.json(
+          { success: false, error: 'アクセス権限がありません' },
+          { status: 403 }
+        )
+      }
     }
     console.error('Reorder entities error:', error)
     return NextResponse.json(
@@ -176,8 +194,9 @@ export async function POST(
   context: RouteParams
 ): Promise<NextResponse<ApiResponse<Entity>>> {
   try {
-    await requireAuth()
     const { clientId } = await context.params
+    await requireClientAccess(clientId)
+
     const body = await request.json()
     const { name } = body
 
@@ -229,16 +248,23 @@ export async function POST(
       data: newEntity,
     })
   } catch (error) {
-    if (error instanceof Error && error.message === 'Unauthorized') {
-      return NextResponse.json(
-        { success: false, error: '認証が必要です' },
-        { status: 401 }
-      )
+    if (error instanceof Error) {
+      if (error.message === 'Unauthorized') {
+        return NextResponse.json(
+          { success: false, error: '認証が必要です' },
+          { status: 401 }
+        )
+      }
+      if (error.message === 'Forbidden') {
+        return NextResponse.json(
+          { success: false, error: 'アクセス権限がありません' },
+          { status: 403 }
+        )
+      }
     }
     console.error('Add entity error:', error)
-    const errorMessage = error instanceof Error ? error.message : '不明なエラー'
     return NextResponse.json(
-      { success: false, error: `部署/店舗の追加に失敗しました: ${errorMessage}` },
+      { success: false, error: '部署/店舗の追加に失敗しました' },
       { status: 500 }
     )
   }

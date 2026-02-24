@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireClientAccess } from '@/lib/auth'
 import { ApiResponse, Task, PdcaIssue } from '@/lib/types'
 import { isDriveConfigured } from '@/lib/drive'
 import {
@@ -19,8 +19,8 @@ export async function GET(
   context: RouteParams
 ): Promise<NextResponse<ApiResponse<Task[]>>> {
   try {
-    await requireAuth()
     const { clientId, entityId } = await context.params
+    await requireClientAccess(clientId)
 
     if (!clientId || !entityId) {
       return NextResponse.json(
@@ -73,6 +73,12 @@ export async function GET(
         { status: 401 }
       )
     }
+    if (error instanceof Error && error.message === 'Forbidden') {
+      return NextResponse.json(
+        { success: false, error: 'アクセス権限がありません' },
+        { status: 403 }
+      )
+    }
     console.error('Get tasks error:', error)
     return NextResponse.json(
       { success: false, error: 'タスク一覧の取得に失敗しました' },
@@ -87,8 +93,8 @@ export async function POST(
   context: RouteParams
 ): Promise<NextResponse<ApiResponse<Task>>> {
   try {
-    await requireAuth()
     const { clientId, entityId } = await context.params
+    await requireClientAccess(clientId)
     const body = await request.json()
 
     if (!clientId || !entityId || !body.title) {
@@ -160,6 +166,12 @@ export async function POST(
       return NextResponse.json(
         { success: false, error: '認証が必要です' },
         { status: 401 }
+      )
+    }
+    if (error instanceof Error && error.message === 'Forbidden') {
+      return NextResponse.json(
+        { success: false, error: 'アクセス権限がありません' },
+        { status: 403 }
       )
     }
     console.error('Create task error:', error)

@@ -19,7 +19,7 @@ const DATA_SOURCES: Record<string, DataSource> = {
   // 空（全企業がDrive JSONを使用）
 }
 
-// Google Driveベースのデータソース（unified_data.json）を持つクライアント
+// Google Driveベースのデータソース（*_master_data.json）を持つクライアント
 // これはclients.jsonから動的に判定される
 export interface DriveDataSource {
   type: 'drive'
@@ -57,12 +57,12 @@ export function getClientDataInfo(clientId: string, driveFolderId?: string): Cli
     }
   }
 
-  // Google Driveフォルダがある場合（unified_data.jsonがデータソース）
+  // Google Driveフォルダがある場合（*_master_data.jsonがデータソース）
   if (driveFolderId) {
     return {
       hasDataSource: true,
       dataSourceType: 'drive',
-      fileName: 'unified_data.json',
+      fileName: null,  // info APIで実際のファイル名を検索
       filePath: null,
       folderPath: null,
       driveFolderId,
