@@ -41,6 +41,7 @@ interface ColumnInfo {
   type: 'number' | 'string' | 'date' | 'unknown'
   unit: string   // 単位
   sampleValues: unknown[]
+  category?: string  // 大項目
 }
 
 // *_master_data.json を検索
@@ -124,7 +125,9 @@ export async function GET(
 
         // ユニークな中項目（カラム）を抽出
         // キー名は「中項目_区分」の形式で区別
-        const uniqueColumns = new Map<string, { unit: string; values: (number | null)[] }>()
+        const uniqueColumns = new Map<string, { unit: string; category: string; values: (number | null)[] }>()
+        const uniqueCategories = new Set<string>()
+
         for (const row of allData) {
           // 区分（実績/計画/累計など）を含めたキー名を生成
           const columnKey = row.区分 && row.区分 !== '実績'
@@ -132,9 +135,10 @@ export async function GET(
             : row.中項目
 
           if (!uniqueColumns.has(columnKey)) {
-            uniqueColumns.set(columnKey, { unit: row.単位, values: [] })
+            uniqueColumns.set(columnKey, { unit: row.単位, category: row.大項目, values: [] })
           }
           uniqueColumns.get(columnKey)!.values.push(row.値)
+          uniqueCategories.add(row.大項目)
         }
 
         const columnInfos: ColumnInfo[] = Array.from(uniqueColumns.entries()).map(([name, info]) => ({
@@ -142,13 +146,18 @@ export async function GET(
           label: name,
           type: 'number' as const,
           unit: info.unit,
+          category: info.category,
           sampleValues: info.values.filter(v => v !== null).slice(0, 5)
         }))
+
+        // 大項目をソートして返す
+        const categories = Array.from(uniqueCategories).sort()
 
         return NextResponse.json({
           success: true,
           data: {
             columns: columnInfos,
+            categories,
             totalRecords: allData.length,
             totalColumns: columnInfos.length,
             source: 'master_data'

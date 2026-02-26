@@ -106,6 +106,7 @@ export interface SeriesConfig {
   yAxisId?: 'left' | 'right'  // 第2軸使用
   color?: string  // カスタム色
   strokeWidth?: number  // 線の太さ (1-5)
+  hidden?: boolean  // 非表示フラグ
 }
 
 export interface Chart {

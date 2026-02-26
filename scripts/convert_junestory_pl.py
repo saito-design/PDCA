@@ -20,14 +20,58 @@ import glob
 from convert_lib import (
     setup_google_auth,
     get_drive_service,
-    upload_to_drive
+    upload_to_drive,
+    load_junestory_master
 )
 
 
-# 店舗コードマッピング（TKC部門コード → 店舗コード）
-# CSVヘッダーから取得した最新の対応表
-TKC_STORE_MAPPING = {
-    # グループ・共通
+# 店舗マスタ（Google Driveから読み込み、グローバルにキャッシュ）
+_STORE_MASTER = None
+
+
+def get_store_master():
+    """店舗マスタを取得（キャッシュ付き）"""
+    global _STORE_MASTER
+    if _STORE_MASTER is None:
+        _STORE_MASTER = load_junestory_master()
+    return _STORE_MASTER
+
+
+def get_store_info_from_pl_name(pl_name: str) -> tuple:
+    """PL店舗名から店舗コードと正式名称を取得
+
+    Args:
+        pl_name: PL上の店舗名（例: "鶏ヤロー蒲田", "均タロー大宮"）
+
+    Returns:
+        (store_code, store_name) or (None, None)
+    """
+    master = get_store_master()
+    if not master:
+        return None, None
+
+    pl_mapping = master.get('mapping', {}).get('pl', {})
+    stores = master.get('stores', {})
+
+    # PLマッピングで検索（完全一致優先）
+    if pl_name in pl_mapping:
+        store_code = pl_mapping[pl_name]
+        if store_code in stores:
+            return store_code, stores[store_code]['name']
+
+    # 部分一致で検索
+    for mapped_pl_name, store_code in pl_mapping.items():
+        if mapped_pl_name in pl_name or pl_name in mapped_pl_name:
+            if store_code in stores:
+                return store_code, stores[store_code]['name']
+
+    return None, None
+
+
+# TKC部門コード→正式店番マッピング（完全版）
+# store_code_mapping.csvのPOSコードとは異なるので注意
+TKC_STORE_MAPPING_FALLBACK = {
+    # グループ・共通（そのまま）
     '000': ('0000', '共通部門'),
     '500': ('0500', '飲食'),
     '700': ('0700', '鶏ヤローグループ'),
@@ -36,62 +80,112 @@ TKC_STORE_MAPPING = {
     '900': ('0900', 'フランチャイズ'),
     '998': ('0998', '閉鎖部門'),
     # 鶏ヤロー (2301-2305)
-    '002': ('2301', '鶏ヤロー蒲田'),
-    '005': ('2302', '鶏ヤロー平間'),
-    '007': ('2303', '鶏ヤロー下北沢'),
-    '009': ('2304', '鶏ヤロー横浜'),
-    '018': ('2305', '鶏ヤロー歌舞伎町'),
-    # 均タロー (1102-1120)
-    '011': ('1102', '均タロー大宮'),
-    '012': ('1103', '均タロー高田馬場'),
-    '014': ('1104', '均タロー溝の口'),
-    '017': ('1106', '均タロー渋谷'),
-    '019': ('1107', '均タロー川越'),
-    '020': ('1108', '均タロー橋本'),
-    '022': ('1109', '均タロー吉祥寺'),
-    '021': ('1110', '均タロー横浜'),
-    '024': ('1111', '均タロー蒲田'),
-    '026': ('1112', '均タロー平塚'),
-    '027': ('1113', '均タロー浜松'),
-    '008': ('1114', '均タロー下北沢'),
-    '013': ('1115', '均タロー西葛西'),
-    '015': ('1116', '均タロー上野'),
-    '016': ('1117', '均タロー水道橋'),
-    '101': ('1118', '均タロー神保町'),
-    '102': ('1119', '均タロー大和'),
-    '103': ('1120', '均タローすすきの'),
-    # きんたろう (3102-3103)
-    '006': ('3102', 'きんたろう練馬'),
-    '023': ('3103', 'きんたろう本厚木'),
+    '002': ('2301', '鶏ヤロー蒲田店'),
+    '005': ('2302', '鶏ヤロー平間店'),  # 閉店
+    '007': ('2303', '鶏ヤロー下北沢店'),
+    '009': ('2304', '鶏ヤロー横浜店'),
+    '018': ('2305', '鶏ヤロー歌舞伎町2号店'),
+    # 均タロー (1102-1113)
+    '011': ('1102', '均タロー大宮店'),
+    '012': ('1103', '均タロー高田馬場店'),
+    '014': ('1104', '均タロー溝の口店'),
+    '017': ('1106', '均タロー渋谷店'),
+    '019': ('1107', '均タロー川越店'),
+    '020': ('1108', '均タロー橋本店'),
+    '022': ('1109', '均タロー吉祥寺店'),
+    '021': ('1110', '均タロー横浜店'),
+    '024': ('1111', '均タロー蒲田店'),
+    '026': ('1112', '均タロー平塚店'),
+    '027': ('1113', '均タロー浜松店'),
+    # 閉店・FC・業務委託
+    '008': ('1114', '均タロー下北沢店'),  # 業務委託
+    '013': ('1115', '均タロー西葛西店'),  # 閉店
+    '015': ('1116', '均タロー上野店'),    # FC
+    '016': ('1117', '均タロー水道橋店'),  # FC
+    '101': ('1118', '均タロー神保町店'),  # FC
+    '102': ('1119', '均タロー大和店'),    # FC
+    '103': ('1120', '均タローすすきの店'),# FC
+    # きんたろう (3101-3102)
+    '006': ('3102', 'きんたろう練馬店'),
+    '023': ('3101', 'きんたろう本厚木店'),
     # 魚ゑもん (4101-4103)
-    '025': ('4101', '魚ゑもん柏'),
-    '031': ('4102', '魚えもん新橋'),
-    '029': ('4103', '魚えもん大井町'),
+    '025': ('4101', '魚ゑもん柏店'),
+    '031': ('4102', '魚ゑもん新橋店'),
+    '029': ('4103', '魚ゑもん大井町店'),
     # その他
     '010': ('9010', 'クローバー'),
     '028': ('9028', '店舗A'),
     '030': ('9030', '店舗C'),
 }
 
-# 勘定科目の大項目分類
+# 勘定科目の大項目分類（損益計算書の順序 - PDFに基づく）
+# 注意: キーワードの順序が重要（より具体的なものを先に判定）
 ACCOUNT_CATEGORIES = {
-    '売上高': ['売上高', '売上', '受取手数料', '営業収入'],
-    '売上原価': ['売上原価', '仕入', '期首商品', '期末商品', '材料費'],
-    '販管費': ['販売費', '管理費', '人件費', '賃借料', '水道光熱費', '減価償却費',
-               '広告宣伝費', '旅費交通費', '通信費', '消耗品費', '修繕費', '租税公課',
-               '保険料', '支払手数料', '雑費', '福利厚生費', '採用教育費', '荷造運賃'],
-    '営業利益': ['営業利益', '売上総利益', '粗利'],
-    '営業外': ['営業外収益', '営業外費用', '支払利息', '受取利息', '雑収入', '雑損失'],
-    '経常利益': ['経常利益', '配賦後経常利益'],
+    '売上高': [
+        '現金売上高', 'クレジット売上高', 'ポイント売上高', '電子マネー売上', '商品券売上高',
+        '飲食店売上高合計', 'クローバー売上高', 'フランチャイズ料', '純売上高', '売上総合計'
+    ],
+    '売上原価': [
+        '期首棚卸高', '商品仕入高', '備品・厨房資材', '飲食店原価合計',
+        '仕入値引戻し高', '他勘定振替高', '期末棚卸高', '当期売上原価'
+    ],
+    '売上総利益': ['売上総利益'],
+    '販管費': [
+        # 人件費
+        '役員報酬', '給与手当', '残業手当', '店舗応援費', 'アルバイト給与', '従業員賞与',
+        '直接人件費合計', '法定福利費', '厚生費', '社宅家賃', '間接人件費合計', '人件費合計',
+        # 移動費
+        '旅費交通費', '車両費', '燃料費', '移動費合計',
+        # 設備費
+        'リース料', '賃借料', '店内サービス費', '備品消耗品費', '事務用消耗品費',
+        '少額減価償却資産', '水道光熱費', '通信費', '店舗家賃', '修繕費', '店舗開発費',
+        '減価償却費', '設備費合計',
+        # 交際費
+        '接待交際費', '会議費', '諸会費', '寄付金', '交際関連費合計',
+        # 経営戦略
+        '広告宣伝費', '求人費', '図書研究費', '支払手数料', 'クレジットカード等手数料',
+        '損害保険料', '生命保険料', '管理諸費', '調査研究費', '経営戦略経費合計',
+        # その他
+        '租税公課', '貸倒引当金繰入', '雑費', 'その他合計',
+        '販売費及び一般管理費'
+    ],
+    '営業利益': ['営業利益', '営業利益(損失)'],
+    '営業外': [
+        '受取利息', '貸倒引当金戻入益', '受取配当金', '雑収入', '営業外収益計',
+        '支払利息', '手形売却損', '本社配賦固定費', '貸倒償却', '繰延資産償却', '雑損失', '営業外費用計'
+    ],
+    '経常利益': ['経常利益', '経常利益(損失)', '共通原価配賦', '共通固定費配賦', '配賦後経常利益'],
 }
 
 
 def categorize_account(account_name: str) -> str:
-    """勘定科目を大項目に分類"""
+    """勘定科目を大項目に分類
+
+    判定順序が重要:
+    1. 完全一致を優先
+    2. より具体的なキーワード（長いもの）を優先
+    3. 部分一致
+    """
+    account_name = account_name.strip()
+
+    # 完全一致を最優先
+    for category, keywords in ACCOUNT_CATEGORIES.items():
+        for keyword in keywords:
+            if account_name == keyword:
+                return category
+
+    # 長いキーワードから順にマッチ（より具体的なマッチを優先）
+    all_matches = []
     for category, keywords in ACCOUNT_CATEGORIES.items():
         for keyword in keywords:
             if keyword in account_name:
-                return category
+                all_matches.append((len(keyword), category, keyword))
+
+    if all_matches:
+        # 最も長いキーワードにマッチしたカテゴリを返す
+        all_matches.sort(reverse=True)
+        return all_matches[0][1]
+
     return 'その他'
 
 
@@ -190,18 +284,45 @@ def convert_pl_csv(csv_path: Path, yearmonth: str, store_map_auto: dict) -> list
         account_col = columns[0]
 
     # 店舗カラムを特定（(XXX)形式のカラム名）
+    master = get_store_master()
+    stores = master.get('stores', {}) if master else {}
+    pl_mapping = master.get('mapping', {}).get('pl', {}) if master else {}
+
     store_columns = []
     for col in columns:
         col_str = str(col).strip()
         match = re.search(r'\((\d{3})\)', col_str)
         if match:
             dept_code = match.group(1)
-            store_info = TKC_STORE_MAPPING.get(dept_code)
-            if not store_info:
-                # store_map_autoから検索
+
+            # カラム名からPL店舗名を抽出（例: "鶏ヤロー蒲田(002)" → "鶏ヤロー蒲田"）
+            pl_name_match = re.match(r'^(.+?)\s*\(\d{3}\)', col_str)
+            pl_name = pl_name_match.group(1).strip() if pl_name_match else None
+
+            store_code, store_name = None, None
+
+            # 1. 固定マッピング（TKC部門コード→正式店番）を最優先
+            fallback = TKC_STORE_MAPPING_FALLBACK.get(dept_code)
+            if fallback:
+                store_code, store_name = fallback
+                # マスタから正式名称を取得（あれば上書き）
+                if store_code in stores:
+                    store_name = stores[store_code]['name']
+
+            # 2. PLマッピングから検索（固定マッピングにない場合）
+            if not store_code and pl_name and pl_name in pl_mapping:
+                store_code = pl_mapping[pl_name]
+                if store_code in stores:
+                    store_name = stores[store_code]['name']
+
+            # 3. フォールバック: store_map_auto（それでも見つからない場合）
+            if not store_code:
                 store_name = store_map_auto.get(dept_code, f'店舗{dept_code}')
-                store_info = (dept_code, store_name)
-            store_columns.append((col, dept_code, store_info[0], store_info[1]))
+                # TKC部門コードの前に'TKC_'を付けて区別
+                store_code = f'TKC_{dept_code}'
+                store_name = auto_name
+
+            store_columns.append((col, dept_code, store_code, store_name))
 
     # 各行を処理
     for idx, row in df.iterrows():

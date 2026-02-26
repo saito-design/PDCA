@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef } from 'react'
-import { GripVertical, Trash2, Eye, EyeOff } from 'lucide-react'
+import { GripVertical, Trash2, Eye, EyeOff, Settings2 } from 'lucide-react'
 import type { ChartConfig } from '@/lib/types'
 import { METRICS, AGGS } from './chart-renderer'
 
@@ -10,9 +10,10 @@ interface ChartListProps {
   onToggleShow: (id: string) => void
   onRemove: (id: string) => void
   onReorder: (fromId: string, toId: string) => void
+  onEdit?: (chart: ChartConfig) => void
 }
 
-export function ChartList({ charts, onToggleShow, onRemove, onReorder }: ChartListProps) {
+export function ChartList({ charts, onToggleShow, onRemove, onReorder, onEdit }: ChartListProps) {
   const dragIdRef = useRef<string | null>(null)
 
   const sortedCharts = [...charts].sort((a, b) => a.sortOrder - b.sortOrder)
@@ -65,6 +66,15 @@ export function ChartList({ charts, onToggleShow, onRemove, onReorder }: ChartLi
             </div>
 
             <div className="flex items-center gap-1 shrink-0">
+              {onEdit && (
+                <button
+                  onClick={() => onEdit(c)}
+                  className="p-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-blue-100 hover:text-blue-600"
+                  title="詳細設定"
+                >
+                  <Settings2 size={16} />
+                </button>
+              )}
               <button
                 onClick={() => onToggleShow(c.id)}
                 className={`p-2 rounded-lg ${

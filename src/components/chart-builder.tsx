@@ -17,6 +17,135 @@ function columnToMetric(col: SelectedColumn, index: number): DynamicMetric {
   }
 }
 
+// カテゴリの表示順序
+const CATEGORY_ORDER = ['統合_', 'PL_売上高', 'PL_売上原価', 'PL_売上総利益', 'PL_販管費', 'PL_営業利益', 'PL_営業外', 'PL_経常利益', 'PL_', 'POS_売上', 'POS_効率', 'POS_単品', 'POS_']
+
+function getCategoryFromKey(key: string): string {
+  // カラム名からカテゴリを抽出（例: "純売上高" -> カテゴリはデータから推測）
+  // ここではlabelに含まれるパターンで判別
+  return 'その他'
+}
+
+interface MetricSelectorProps {
+  metrics: DynamicMetric[]
+  selectedKeys: string[]
+  onToggle: (key: string) => void
+}
+
+function MetricSelector({ metrics, selectedKeys, onToggle }: MetricSelectorProps) {
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['統合_売上', 'PL_売上高']))
+
+  // メトリクスをカテゴリでグループ化
+  const groupedMetrics = useMemo(() => {
+    const groups = new Map<string, DynamicMetric[]>()
+
+    for (const m of metrics) {
+      // カラム名からカテゴリを推測
+      let category = 'その他'
+
+      // labelから区分を除いた部分でカテゴリを判別
+      const label = m.label || m.key
+      const baseLabel = label.replace(/（[^）]+）$/, '')
+
+      // カテゴリ判定（優先順位順）
+      if (baseLabel.includes('純売上高') && m.key.includes('統合')) {
+        category = '統合_売上'
+      } else if (['現金売上', 'クレジット売上', 'ポイント売上', '電子マネー売上', '飲食店売上', '純売上', 'フランチャイズ料'].some(k => baseLabel.includes(k))) {
+        category = 'PL_売上高'
+      } else if (['期首棚卸', '商品仕入', '原価', '棚卸'].some(k => baseLabel.includes(k))) {
+        category = 'PL_売上原価'
+      } else if (baseLabel.includes('売上総利益')) {
+        category = 'PL_売上総利益'
+      } else if (['人件費', '給与', 'アルバイト', '役員報酬', '法定福利', '厚生', '旅費', '車両', '水道光熱', '通信', '家賃', '減価償却', '広告', '手数料', '保険', '租税', '販管費', '設備費', '経営戦略'].some(k => baseLabel.includes(k))) {
+        category = 'PL_販管費'
+      } else if (baseLabel.includes('営業利益')) {
+        category = 'PL_営業利益'
+      } else if (['営業外', '支払利息', '受取利息', '雑収入', '雑損失'].some(k => baseLabel.includes(k))) {
+        category = 'PL_営業外'
+      } else if (['経常利益', '配賦'].some(k => baseLabel.includes(k))) {
+        category = 'PL_経常利益'
+      } else if (['客数', '客単価', '組数', '回転'].some(k => baseLabel.includes(k))) {
+        category = 'POS_売上'
+      } else if (['単品', '商品'].some(k => baseLabel.includes(k))) {
+        category = 'POS_単品'
+      }
+
+      if (!groups.has(category)) {
+        groups.set(category, [])
+      }
+      groups.get(category)!.push(m)
+    }
+
+    // カテゴリをソート
+    const sortedCategories = Array.from(groups.keys()).sort((a, b) => {
+      const getOrder = (cat: string) => {
+        for (let i = 0; i < CATEGORY_ORDER.length; i++) {
+          if (cat.startsWith(CATEGORY_ORDER[i]) || cat === CATEGORY_ORDER[i].replace('_', '')) {
+            return i
+          }
+        }
+        return CATEGORY_ORDER.length
+      }
+      return getOrder(a) - getOrder(b)
+    })
+
+    return sortedCategories.map(cat => ({
+      category: cat,
+      metrics: groups.get(cat)!
+    }))
+  }, [metrics])
+
+  const toggleCategory = (cat: string) => {
+    setExpandedCategories(prev => {
+      const next = new Set(prev)
+      if (next.has(cat)) {
+        next.delete(cat)
+      } else {
+        next.add(cat)
+      }
+      return next
+    })
+  }
+
+  const formatCategoryName = (cat: string) => {
+    return cat.replace('PL_', 'PL ').replace('POS_', 'POS ').replace('統合_', '統合 ')
+  }
+
+  return (
+    <div className="max-h-80 overflow-y-auto border rounded-lg">
+      {groupedMetrics.map(({ category, metrics: catMetrics }) => (
+        <div key={category} className="border-b last:border-b-0">
+          <button
+            onClick={() => toggleCategory(category)}
+            className="w-full flex items-center justify-between px-2 py-1.5 text-xs font-medium text-gray-600 bg-gray-50 hover:bg-gray-100"
+          >
+            <span>{formatCategoryName(category)} ({catMetrics.length})</span>
+            <span className="text-gray-400">{expandedCategories.has(category) ? '▼' : '▶'}</span>
+          </button>
+          {expandedCategories.has(category) && (
+            <div className="grid grid-cols-2 gap-1 p-1">
+              {catMetrics.map((m) => (
+                <label
+                  key={m.key}
+                  className="flex items-center gap-1.5 text-xs bg-white border rounded px-1.5 py-1 cursor-pointer hover:bg-gray-50"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedKeys.includes(m.key)}
+                    onChange={() => onToggle(m.key)}
+                    className="rounded w-3 h-3"
+                  />
+                  <span className="truncate" style={{ color: m.color }}>{m.label}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 interface SeriesSettingProps {
   metricKey: string
   config: SeriesConfig
@@ -191,50 +320,37 @@ export function ChartBuilder({
   }
 
   return (
-    <div className="bg-white rounded-2xl shadow p-4 space-y-4">
-      <div>
-        <div className="font-semibold">グラフ作成</div>
-        <div className="text-xs text-gray-500">データ項目ごとに棒/折れ線・色・線種を設定可能</div>
-      </div>
-
-      {/* グローバルフィルタ */}
-      <div className="rounded-xl border bg-gray-50 p-3">
-        <div className="text-xs font-semibold text-gray-600 mb-2">全体フィルタ</div>
-        <div>
-          <div className="text-xs text-gray-500 mb-1">期間（直近N件）</div>
+    <div className="bg-white rounded-2xl shadow p-3 space-y-2">
+      {/* ヘッダー + 設定を1行に */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="font-semibold text-sm">グラフ作成</div>
+        <div className="flex items-center gap-2">
           <select
-            className="w-full border rounded-lg px-2 py-1.5 bg-white text-sm"
+            className="border rounded px-1.5 py-1 bg-white text-xs"
             value={globalFilters.lastN}
             onChange={(e) =>
               onChangeGlobalFilters((p) => ({ ...p, lastN: Number(e.target.value) }))
             }
+            title="期間（直近N件）"
           >
             {[3, 6, 12].map((n) => (
-              <option key={n} value={n}>{n}</option>
+              <option key={n} value={n}>{n}ヶ月</option>
             ))}
           </select>
-        </div>
-      </div>
-
-      {/* グラフ設定 */}
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <div className="text-xs text-gray-500 mb-1">デフォルト形状</div>
           <select
-            className="w-full border rounded-lg px-2 py-1.5 bg-white text-sm"
+            className="border rounded px-1.5 py-1 bg-white text-xs"
             value={defaultType}
             onChange={(e) => setDefaultType(e.target.value as ChartType)}
+            title="デフォルト形状"
           >
             <option value="bar">棒</option>
-            <option value="line">折れ線</option>
+            <option value="line">線</option>
           </select>
-        </div>
-        <div>
-          <div className="text-xs text-gray-500 mb-1">集計</div>
           <select
-            className="w-full border rounded-lg px-2 py-1.5 bg-white text-sm"
+            className="border rounded px-1.5 py-1 bg-white text-xs"
             value={aggKey}
             onChange={(e) => setAggKey(e.target.value as AggKey)}
+            title="集計"
           >
             {AGGS.map((a) => (
               <option key={a.key} value={a.key}>{a.label}</option>
@@ -243,15 +359,13 @@ export function ChartBuilder({
         </div>
       </div>
 
-      <div>
-        <div className="text-xs text-gray-500 mb-1">タイトル</div>
-        <input
-          className="w-full border rounded-lg px-3 py-1.5 text-sm"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="グラフのタイトル"
-        />
-      </div>
+      {/* タイトル */}
+      <input
+        className="w-full border rounded-lg px-2 py-1 text-sm"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="タイトル"
+      />
 
       <div>
         <div className="text-xs text-gray-500 mb-1">データ項目（表示する数値）</div>
@@ -266,23 +380,11 @@ export function ChartBuilder({
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
-            {metrics.map((m) => (
-              <label
-                key={m.key}
-                className="flex items-center gap-2 text-sm bg-gray-50 border rounded-lg px-2 py-1.5 cursor-pointer hover:bg-gray-100"
-              >
-                <input
-                  type="checkbox"
-                  checked={seriesKeys.includes(m.key)}
-                  onChange={() => toggleSeries(m.key)}
-                  className="rounded"
-                />
-                <span className="truncate" style={{ color: m.color }}>{m.label}</span>
-                {m.unit && <span className="text-xs text-gray-400 flex-shrink-0">({m.unit})</span>}
-              </label>
-            ))}
-          </div>
+          <MetricSelector
+            metrics={metrics}
+            selectedKeys={seriesKeys}
+            onToggle={toggleSeries}
+          />
         )}
       </div>
 

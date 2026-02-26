@@ -13,6 +13,7 @@ import {
   ResponsiveContainer,
 } from 'recharts'
 import type { ChartConfig, GlobalFilters, SeriesConfig, LineStyle, DynamicMetric } from '@/lib/types'
+import { formatCurrency } from '@/lib/formatters'
 
 // デフォルトの指標定義（後方互換性のため残す）
 export const DEFAULT_METRICS: DynamicMetric[] = [
@@ -58,6 +59,18 @@ export const COLOR_PALETTE = [
 interface DataRow {
   yearMonth: string
   [key: string]: unknown
+}
+
+// 会計年度を取得（11月始まり・10月決算）
+function getFiscalYear(yearMonth: string): string {
+  const [year, month] = yearMonth.split('-').map(Number)
+  // 11月以降は翌年度
+  return month >= 11 ? String(year + 1) : String(year)
+}
+
+// 累計系列かどうかを判定
+function isCumulativeSeries(key: string): boolean {
+  return key.includes('累計')
 }
 
 function computeAggRow(row: DataRow, aggKey: string, seriesKeys: string[]): DataRow {
@@ -115,7 +128,7 @@ export function ChartRenderer({ config, globalFilters, data, metrics }: ChartRen
     // 直近N件
     const sliced = data.slice(-globalFilters.lastN)
 
-    // 累計計算
+    // 累計計算（aggKey === 'cumulative'の場合のみ）
     if (aggKey === 'cumulative') {
       let cumulativeValues: Record<string, number> = {}
       return sliced.map((row) => {
@@ -128,6 +141,32 @@ export function ChartRenderer({ config, globalFilters, data, metrics }: ChartRen
           }
         }
         return newRow
+      })
+    }
+
+    // 累計系列の年度フィルタリング
+    // 最新データの年度を基準に、累計系列は今期データのみ表示
+    const latestYearMonth = sliced[sliced.length - 1]?.yearMonth
+    const currentFiscalYear = latestYearMonth ? getFiscalYear(latestYearMonth) : null
+
+    // 累計系列があるかチェック
+    const hasCumulativeSeries = seriesKeys.some(isCumulativeSeries)
+
+    if (hasCumulativeSeries && currentFiscalYear) {
+      return sliced.map((row) => {
+        const rowFiscalYear = getFiscalYear(row.yearMonth)
+        const newRow = { ...row }
+
+        // 今期以外の累計データはnullにする
+        if (rowFiscalYear !== currentFiscalYear) {
+          for (const key of seriesKeys) {
+            if (isCumulativeSeries(key)) {
+              newRow[key] = null
+            }
+          }
+        }
+
+        return computeAggRow(newRow, aggKey, seriesKeys)
       })
     }
 
@@ -144,8 +183,8 @@ export function ChartRenderer({ config, globalFilters, data, metrics }: ChartRen
     return map
   }, [seriesConfig])
 
-  // Y軸が必要か
-  const hasRightAxis = seriesConfig.some((sc) => sc.yAxisId === 'right')
+  // Y軸が必要か（非表示系列を除く）
+  const hasRightAxis = seriesConfig.some((sc) => sc.yAxisId === 'right' && !sc.hidden)
 
   if (chartData.length === 0) {
     return (
@@ -164,8 +203,8 @@ export function ChartRenderer({ config, globalFilters, data, metrics }: ChartRen
         {title}
         {store && <span className="text-gray-400 ml-2">({store})</span>}
       </div>
-      <ResponsiveContainer width="100%" height={220}>
-        <ComposedChart data={chartData} margin={{ top: 5, right: 30, left: 0, bottom: 5 }}>
+      <ResponsiveContainer width="100%" height={240}>
+        <ComposedChart data={chartData} margin={{ top: 5, right: 30, left: 0, bottom: 25 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
           <XAxis
             dataKey={xKey}
@@ -199,20 +238,90 @@ export function ChartRenderer({ config, globalFilters, data, metrics }: ChartRen
             />
           )}
           <Tooltip
-            formatter={(value, name) => {
-              if (typeof value !== 'number') return [String(value), String(name)]
-              const metric = activeMetrics.find((m) => m.key === name)
-              if (metric?.unit === '円' && value >= 1000) {
-                return [`${Math.round(value / 1000).toLocaleString()}千円`, metric.label]
-              }
-              return [value.toLocaleString() + (metric?.unit || ''), metric?.label || String(name)]
+            content={({ active, payload, label }) => {
+              if (!active || !payload) return null
+
+              // 全系列のデータを取得（非表示除く）
+              const dataPoint = payload[0]?.payload || {}
+              const visibleKeys = seriesKeys.filter(key => !seriesConfigMap.get(key)?.hidden)
+
+              return (
+                <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm">
+                  <div className="font-semibold text-gray-800 mb-2">{label}</div>
+                  {visibleKeys.map((key, idx) => {
+                    const metric = activeMetrics.find((m) => m.key === key)
+                    const sc = seriesConfigMap.get(key)
+                    const color = sc?.color || metric?.color || COLOR_PALETTE[idx % COLOR_PALETTE.length]
+                    const value = dataPoint[key]
+                    const displayName = metric?.label || key
+
+                    let displayValue: string
+                    if (value === null || value === undefined) {
+                      // 前年系列でデータなしの場合
+                      if (key.includes('前年')) {
+                        displayValue = 'データなし（前年売上0）'
+                      } else {
+                        displayValue = 'データなし'
+                      }
+                    } else if (typeof value === 'number') {
+                      displayValue = formatCurrency(value, metric?.unit, metric?.label)
+                    } else {
+                      displayValue = String(value)
+                    }
+
+                    return (
+                      <div key={key} className="flex items-center gap-2 py-0.5">
+                        <span
+                          className="w-3 h-3 rounded-sm shrink-0"
+                          style={{ backgroundColor: color }}
+                        />
+                        <span className="text-gray-600">{displayName}:</span>
+                        <span className={value === null || value === undefined ? 'text-gray-400 italic' : 'font-medium'}>
+                          {displayValue}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
             }}
           />
-          <Legend wrapperStyle={{ fontSize: '10px', paddingTop: 0, marginTop: -10 }} />
+          <Legend
+            wrapperStyle={{ fontSize: '10px', paddingTop: 5 }}
+            content={() => {
+              // seriesKeysの順序で凡例を表示（非表示系列は除外）
+              const items = seriesKeys
+                .filter(key => !seriesConfigMap.get(key)?.hidden)
+                .map((key, idx) => {
+                  const metric = activeMetrics.find((m) => m.key === key)
+                  const sc = seriesConfigMap.get(key)
+                  const color = sc?.color || metric?.color || COLOR_PALETTE[idx % COLOR_PALETTE.length]
+                  const isLine = sc?.chartType === 'line'
+                  return (
+                    <span key={key} className="inline-flex items-center gap-1 mr-3">
+                      {isLine ? (
+                        <svg width="14" height="10">
+                          <line x1="0" y1="5" x2="14" y2="5" stroke={color} strokeWidth="2" />
+                          <circle cx="7" cy="5" r="3" fill={color} />
+                        </svg>
+                      ) : (
+                        <span style={{ width: 10, height: 10, backgroundColor: color, display: 'inline-block' }} />
+                      )}
+                      <span style={{ color: '#666' }}>{metric?.label || key}</span>
+                    </span>
+                  )
+                })
+              return <div className="flex flex-wrap justify-center">{items}</div>
+            }}
+          />
 
           {seriesKeys.map((key, idx) => {
             const metric = activeMetrics.find((m) => m.key === key)
             const sc = seriesConfigMap.get(key)
+
+            // 非表示の系列はスキップ
+            if (sc?.hidden) return null
+
             const chartType = sc?.chartType || 'bar'
             const color = sc?.color || metric?.color || COLOR_PALETTE[idx % COLOR_PALETTE.length]
             const opacity = sc?.opacity ?? 1

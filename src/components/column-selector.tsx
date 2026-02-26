@@ -11,6 +11,7 @@ interface ColumnInfo {
   unit?: string
   sampleValues: unknown[]
   isSystem?: boolean
+  category?: string  // 大項目
 }
 
 interface ColumnSelectorProps {
@@ -27,10 +28,12 @@ export default function ColumnSelector({
   onSave
 }: ColumnSelectorProps) {
   const [columns, setColumns] = useState<ColumnInfo[]>([])
+  const [categories, setCategories] = useState<string[]>([])
   const [selected, setSelected] = useState<Map<string, SelectedColumn>>(new Map())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [showSystemColumns, setShowSystemColumns] = useState(false)
+  const [categoryFilter, setCategoryFilter] = useState<string | null>(null)  // カテゴリ絞り込み
 
   useEffect(() => {
     fetchColumns()
@@ -54,6 +57,11 @@ export default function ColumnSelector({
           isSystem: col.isSystem ?? col.name.startsWith('_')
         }))
         setColumns(cols)
+
+        // 大項目（カテゴリ）を設定
+        if (data.data.categories) {
+          setCategories(data.data.categories)
+        }
 
         // 単位情報があれば自動設定
         if (entityId && cols.length > 0) {
@@ -166,47 +174,32 @@ export default function ColumnSelector({
     })
   }
 
-  // クイックフィルター定義
-  const quickFilters = [
-    {
-      label: '全解除',
-      action: () => setSelected(new Map()),
-      variant: 'danger' as const
-    },
-    {
-      label: '会計データ',
-      action: () => applyFilter(col => col.name.startsWith('PL_') || col.name.includes('売上高') || col.name.includes('原価') || col.name.includes('利益'), true),
-      variant: 'default' as const
-    },
-    {
-      label: 'POSレジ指標',
-      action: () => applyFilter(col =>
-        (col.name.startsWith('POS_') || col.name.includes('売上') || col.name.includes('客数') || col.name.includes('客単価')) &&
-        !col.name.includes('単品'), true),
-      variant: 'default' as const
-    },
-    {
-      label: 'POS単品',
-      action: () => applyFilter(col => col.name.includes('単品'), true),
-      variant: 'default' as const
-    },
-    {
-      label: '利益関連',
-      action: () => applyFilter(col => col.name.includes('利益') || col.name.includes('粗利'), true),
-      variant: 'success' as const
-    },
-    {
-      label: 'コスト',
-      action: () => applyFilter(col =>
-        col.name.includes('原価') || col.name.includes('人件費') || col.name.includes('給与') ||
-        col.name.includes('賃借料') || col.name.includes('家賃') || col.name.includes('光熱'), true),
-      variant: 'warning' as const
-    },
+  // 全選択
+  const selectAll = () => {
+    const newMap = new Map<string, SelectedColumn>()
+    filteredColumns.forEach(col => {
+      newMap.set(col.name, {
+        name: col.name,
+        label: col.label || col.name,
+        type: col.type,
+        unit: col.unit || (col.type === 'number' ? '' : undefined)
+      })
+    })
+    setSelected(newMap)
+  }
+
+  // カテゴリフィルター（絞り込み表示用）
+  const categoryFilters = [
+    { label: 'すべて', value: null },
+    ...categories.map(cat => ({ label: cat, value: cat }))
   ]
 
-  const filteredColumns = showSystemColumns
-    ? columns
-    : columns.filter(col => !col.isSystem)
+  // カラム一覧のフィルタリング（システムカラム + カテゴリ）
+  const filteredColumns = columns.filter(col => {
+    if (!showSystemColumns && col.isSystem) return false
+    if (categoryFilter && col.category !== categoryFilter) return false
+    return true
+  })
 
   if (loading) {
     return (
@@ -251,6 +244,42 @@ export default function ColumnSelector({
               />
               システムカラム（_で始まる）を表示
             </label>
+          </div>
+
+          {/* カテゴリ絞り込み */}
+          <div className="mb-4">
+            <div className="text-xs text-gray-500 mb-2">カテゴリで絞り込み</div>
+            <div className="flex flex-wrap gap-2">
+              {categoryFilters.map((filter, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setCategoryFilter(filter.value)}
+                  className={`px-3 py-1 text-sm rounded-full border transition-colors active:scale-95 ${
+                    categoryFilter === filter.value
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-gray-100 text-gray-700 border-gray-200 hover:bg-gray-200 active:bg-blue-100'
+                  }`}
+                >
+                  {filter.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* 選択操作 */}
+          <div className="mb-4 flex gap-2">
+            <button
+              onClick={selectAll}
+              className="px-3 py-1 text-sm rounded border bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-200 active:bg-blue-300"
+            >
+              表示中を全選択
+            </button>
+            <button
+              onClick={() => setSelected(new Map())}
+              className="px-3 py-1 text-sm rounded border bg-red-100 text-red-700 border-red-200 hover:bg-red-200 active:bg-red-300"
+            >
+              全解除
+            </button>
           </div>
 
           {/* カラム一覧 */}

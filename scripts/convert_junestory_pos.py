@@ -27,32 +27,47 @@ from convert_lib import (
     setup_google_auth,
     get_drive_service,
     upload_to_drive,
-    find_folder_by_name
+    find_folder_by_name,
+    load_junestory_master,
+    ensure_file_downloaded
 )
 
 
-def load_store_master(master_path: str) -> dict:
-    """店舗マスタを読み込む"""
-    with open(master_path, 'r', encoding='utf-8') as f:
-        master = json.load(f)
+def load_store_master(master_path: str = None, service=None) -> dict:
+    """店舗マスタを読み込む（Google Drive優先、フォールバックでローカル）"""
+    # Google Driveから取得を試行
+    master = load_junestory_master(service)
+    if master:
+        return {
+            'stores': master['stores'],
+            'mapping': master['mapping'],
+            'company_name': master['company_name']
+        }
 
-    # 店舗コード→店舗情報のマッピング
+    # フォールバック: ローカルファイル
+    print('[INFO] ローカルファイルから店舗マスタを読み込み')
+    with open(master_path, 'r', encoding='utf-8') as f:
+        local_master = json.load(f)
+
     stores_by_code = {}
-    for store in master['stores']:
+    for store in local_master['stores']:
         stores_by_code[store['store_code']] = store
 
-    # POSコード→店舗コードのマッピング
-    pos_code_mapping = master.get('pos_code_mapping', {})
+    pos_code_mapping = local_master.get('pos_code_mapping', {})
 
     return {
         'stores': stores_by_code,
-        'pos_mapping': pos_code_mapping,
-        'company_name': master['company_name']
+        'mapping': {'pos': pos_code_mapping, 'pl': {}, 'pos_name': {}, 'fun': {}, 'dinii': {}},
+        'company_name': local_master['company_name']
     }
 
 
 def detect_encoding(file_path: str) -> str:
     """ファイルのエンコーディングを検出"""
+    # OneDriveファイルのダウンロードを確認
+    if not ensure_file_downloaded(file_path):
+        raise IOError(f"ファイルをダウンロードできません: {file_path}")
+
     with open(file_path, 'rb') as f:
         raw = f.read(10000)
     result = chardet.detect(raw)
@@ -90,22 +105,49 @@ def extract_yearmonth_from_filename(filename: str) -> str:
     return None
 
 
-def extract_store_from_filename(filename: str, store_master: dict) -> tuple:
-    """ファイル名から店舗情報を抽出"""
+def extract_store_from_filename(filename: str, store_master: dict, source_type: str = 'pos') -> tuple:
+    """ファイル名から店舗情報を抽出
+
+    Args:
+        filename: ファイル名
+        store_master: 店舗マスタ
+        source_type: 'pos', 'fun', 'dinii' のいずれか
+
+    Returns:
+        (store_code, store_name)
+    """
+    mapping = store_master.get('mapping', {})
+    stores = store_master.get('stores', {})
+
     # POSコード形式: 002_xxx, 015_xxx等
     match = re.match(r'^(\d{3})_', filename)
     if match:
         pos_code = match.group(1)
-        store_code = store_master['pos_mapping'].get(pos_code)
-        if store_code and store_code in store_master['stores']:
-            store = store_master['stores'][store_code]
-            return store_code, store['name']
+        store_code = mapping.get('pos', {}).get(pos_code)
+        if store_code and store_code in stores:
+            return store_code, stores[store_code]['name']
         return pos_code, f"店舗{pos_code}"
 
-    # 店舗名含むファイル名
-    for store_code, store in store_master['stores'].items():
+    # POS店舗名でマッチ（完全一致優先）
+    for pos_name, store_code in mapping.get('pos_name', {}).items():
+        if pos_name in filename and store_code in stores:
+            return store_code, stores[store_code]['name']
+
+    # fun店舗名でマッチ
+    if source_type == 'fun':
+        for fun_name, store_code in mapping.get('fun', {}).items():
+            if fun_name in filename and store_code in stores:
+                return store_code, stores[store_code]['name']
+
+    # dinii店舗名でマッチ
+    if source_type == 'dinii':
+        for dinii_name, store_code in mapping.get('dinii', {}).items():
+            if dinii_name in filename and store_code in stores:
+                return store_code, stores[store_code]['name']
+
+    # フォールバック: 店舗名の部分一致
+    for store_code, store in stores.items():
         store_name = store['name']
-        # 名前の一部でもマッチすれば採用
         simplified_name = store_name.replace('!', '').replace('！', '').replace(' ', '')
         if simplified_name in filename.replace(' ', ''):
             return store_code, store_name
@@ -274,15 +316,26 @@ def convert_fun_sales_csv(csv_path: Path, store_master: dict) -> list:
         return []
 
     store_name_raw = store_name_match.group(1)
-    store_code, store_name = None, None
+    mapping = store_master.get('mapping', {})
+    stores = store_master.get('stores', {})
 
-    # 店舗マスタから検索
-    for code, store in store_master['stores'].items():
-        name = store['name'].replace('!', '').replace('！', '').replace(' ', '')
-        if store_name_raw.replace(' ', '') in name or name in store_name_raw.replace(' ', ''):
-            store_code = code
-            store_name = store['name']
-            break
+    # funマッピングで検索（完全一致優先）
+    store_code, store_name = None, None
+    for fun_name, code in mapping.get('fun', {}).items():
+        if fun_name == store_name_raw or store_name_raw in fun_name or fun_name in store_name_raw:
+            if code in stores:
+                store_code = code
+                store_name = stores[code]['name']
+                break
+
+    # フォールバック: 店舗マスタから部分一致検索
+    if not store_code:
+        for code, store in stores.items():
+            name = store['name'].replace('!', '').replace('！', '').replace(' ', '')
+            if store_name_raw.replace(' ', '') in name or name in store_name_raw.replace(' ', ''):
+                store_code = code
+                store_name = store['name']
+                break
 
     if not store_code:
         store_code = 'UNKNOWN'
@@ -365,14 +418,26 @@ def convert_fun_items_csv(csv_path: Path, store_master: dict) -> list:
         return []
 
     store_name_raw = store_name_match.group(1)
-    store_code, store_name = None, None
+    mapping = store_master.get('mapping', {})
+    stores = store_master.get('stores', {})
 
-    for code, store in store_master['stores'].items():
-        name = store['name'].replace('!', '').replace('！', '').replace(' ', '')
-        if store_name_raw.replace(' ', '') in name or name in store_name_raw.replace(' ', ''):
-            store_code = code
-            store_name = store['name']
-            break
+    # funマッピングで検索
+    store_code, store_name = None, None
+    for fun_name, code in mapping.get('fun', {}).items():
+        if fun_name == store_name_raw or store_name_raw in fun_name or fun_name in store_name_raw:
+            if code in stores:
+                store_code = code
+                store_name = stores[code]['name']
+                break
+
+    # フォールバック
+    if not store_code:
+        for code, store in stores.items():
+            name = store['name'].replace('!', '').replace('！', '').replace(' ', '')
+            if store_name_raw.replace(' ', '') in name or name in store_name_raw.replace(' ', ''):
+                store_code = code
+                store_name = store['name']
+                break
 
     if not store_code:
         store_code = 'UNKNOWN'
@@ -446,6 +511,8 @@ def convert_dinii_sales_csv(csv_path: Path, store_master: dict) -> list:
     records = []
 
     filename = csv_path.name
+    mapping = store_master.get('mapping', {})
+    stores = store_master.get('stores', {})
 
     try:
         df = pd.read_csv(csv_path, encoding='utf-8-sig', header=0)
@@ -468,15 +535,27 @@ def convert_dinii_sales_csv(csv_path: Path, store_master: dict) -> list:
     if not date_col:
         return []
 
-    # 店舗特定（魚えもんの場合）
+    # 店舗特定（diniiマッピング使用）
     store_code = '4101'  # デフォルトで柏店
-    store_name = '魚ゑもん 柏店'
+    store_name = stores.get('4101', {}).get('name', '魚ゑもん柏店')
 
     if store_col and len(df) > 0:
         first_store = str(df[store_col].iloc[0])
-        if '新橋' in first_store:
-            store_code = '4102'
-            store_name = '魚ゑもん 新橋店'
+        # diniiマッピングで検索
+        for dinii_name, code in mapping.get('dinii', {}).items():
+            if dinii_name in first_store or first_store in dinii_name:
+                if code in stores:
+                    store_code = code
+                    store_name = stores[code]['name']
+                    break
+        else:
+            # フォールバック: キーワードで判定
+            if '新橋' in first_store:
+                store_code = '4102'
+                store_name = stores.get('4102', {}).get('name', '魚ゑもん新橋店')
+            elif '大井町' in first_store:
+                store_code = '4103'
+                store_name = stores.get('4103', {}).get('name', '魚ゑもん大井町店')
 
     # 日別データを月次集計
     df['日付'] = pd.to_datetime(df[date_col])
@@ -632,7 +711,12 @@ def main():
     script_dir = Path(__file__).parent
     project_dir = script_dir.parent
 
-    # 店舗マスタ読み込み
+    # 環境変数読み込み（Google Drive用）
+    env_path = project_dir / '.env.local'
+    if env_path.exists():
+        setup_google_auth(str(env_path))
+
+    # 店舗マスタ読み込み（Google Drive優先）
     store_master_path = script_dir / 'junestory_stores.json'
     store_master = load_store_master(str(store_master_path))
     print(f"店舗マスタ読み込み: {len(store_master['stores'])}店舗")

@@ -7,6 +7,7 @@ import type { ChartConfig, GlobalFilters, SessionData, Client, Entity, DynamicMe
 import { ChartBuilder } from '@/components/chart-builder'
 import { ChartList } from '@/components/chart-list'
 import { ChartRenderer } from '@/components/chart-renderer'
+import { ChartEditor } from '@/components/chart-editor'
 import { getSelectedColumns } from '@/lib/column-storage'
 import { COLOR_PALETTE } from '@/components/chart-renderer'
 
@@ -35,6 +36,7 @@ export default function ChartStudioPage({ params }: PageProps) {
   const [chartsWithMetrics, setChartsWithMetrics] = useState<ChartWithMetrics[]>([])
   const [globalFilters, setGlobalFilters] = useState<GlobalFilters>({ lastN: 6 })
   const [loading, setLoading] = useState(true)
+  const [editingChart, setEditingChart] = useState<ChartConfig | null>(null)
 
   // 実データ
   const [monthlyData, setMonthlyData] = useState<MonthlyData[]>([])
@@ -153,25 +155,37 @@ export default function ChartStudioPage({ params }: PageProps) {
   }, [charts])
 
   const handleAddChart = async (chart: ChartConfig, metrics: DynamicMetric[]) => {
-    setChartsWithMetrics((prev) => [{ chart, metrics }, ...prev])
-
     // APIに保存
-    await fetch(`/api/clients/${clientId}/charts`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: chart.title,
-        type: chart.type,
-        x_key: chart.xKey,
-        series_keys: chart.seriesKeys,
-        series_config: chart.seriesConfig,
-        agg_key: chart.aggKey,
-        store_override: chart.store,
-        show_on_dashboard: chart.showOnDashboard,
-        sort_order: chart.sortOrder,
-        metrics: metrics,  // メトリクス情報も保存
-      }),
-    })
+    try {
+      const res = await fetch(`/api/clients/${clientId}/charts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: chart.title,
+          type: chart.type,
+          x_key: chart.xKey,
+          series_keys: chart.seriesKeys,
+          series_config: chart.seriesConfig,
+          agg_key: chart.aggKey,
+          store_override: chart.store,
+          show_on_dashboard: chart.showOnDashboard,
+          sort_order: chart.sortOrder,
+          metrics: metrics,
+        }),
+      })
+      const result = await res.json()
+      if (result.success) {
+        // 成功時のみローカルに追加（APIから返されたIDを使用）
+        const savedChart = { ...chart, id: result.data.id }
+        setChartsWithMetrics((prev) => [{ chart: savedChart, metrics }, ...prev])
+      } else {
+        console.error('Chart creation failed:', result.error)
+        alert(`グラフの作成に失敗しました: ${result.error || '不明なエラー'}`)
+      }
+    } catch (error) {
+      console.error('Chart creation error:', error)
+      alert('グラフの作成中にエラーが発生しました')
+    }
   }
 
   const handleRemoveChart = async (id: string) => {
@@ -219,6 +233,38 @@ export default function ChartStudioPage({ params }: PageProps) {
         items: reordered.map((cm) => ({ id: cm.chart.id, sort_order: cm.chart.sortOrder })),
       }),
     })
+  }
+
+  // グラフ詳細設定を保存
+  const handleSaveChart = async (updatedChart: ChartConfig) => {
+    try {
+      const res = await fetch(`/api/clients/${clientId}/charts/${updatedChart.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: updatedChart.title,
+          series_config: updatedChart.seriesConfig,
+        }),
+      })
+      const result = await res.json()
+      if (result.success) {
+        // ローカルのchartsWithMetricsを更新
+        setChartsWithMetrics(prev =>
+          prev.map(cm =>
+            cm.chart.id === updatedChart.id
+              ? { ...cm, chart: updatedChart }
+              : cm
+          )
+        )
+        setEditingChart(null)
+      } else {
+        console.error('Save failed:', result.error)
+        alert(`保存に失敗しました: ${result.error || '不明なエラー'}`)
+      }
+    } catch (error) {
+      console.error('Failed to save chart:', error)
+      alert('保存中にエラーが発生しました')
+    }
   }
 
   const sortedChartsWithMetrics = useMemo(
@@ -286,6 +332,7 @@ export default function ChartStudioPage({ params }: PageProps) {
               onToggleShow={handleToggleShow}
               onRemove={handleRemoveChart}
               onReorder={handleReorder}
+              onEdit={setEditingChart}
             />
           </div>
 
@@ -309,6 +356,15 @@ export default function ChartStudioPage({ params }: PageProps) {
           </div>
         </div>
       </main>
+
+      {/* グラフ編集モーダル */}
+      {editingChart && (
+        <ChartEditor
+          chart={editingChart}
+          onSave={handleSaveChart}
+          onClose={() => setEditingChart(null)}
+        />
+      )}
     </div>
   )
 }

@@ -48,13 +48,17 @@ export async function verifyCredentials(
   return null
 }
 
-// 認証チェック用ヘルパー
+// 認証チェック用ヘルパー（ログイン画面を割愛 - 常に管理者として認証済み）
 export async function requireAuth(): Promise<SessionData> {
-  const session = await getSession()
-  if (!session.isLoggedIn) {
-    throw new Error('Unauthorized')
+  // ログイン不要: 常に管理者セッションを返す
+  return {
+    userId: 'user-owner',
+    email: 'owner',
+    name: 'オーナー',
+    role: 'admin',
+    clientId: null,
+    isLoggedIn: true,
   }
-  return session
 }
 
 // 管理者チェック

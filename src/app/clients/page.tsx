@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Building2, LogOut, RefreshCw, FileSpreadsheet, FolderOpen, Plus, Copy, Check, Trash2, AlertTriangle, Cloud, Pencil, ChevronUp, ChevronDown, Upload } from 'lucide-react'
+import { Building2, RefreshCw, FileSpreadsheet, FolderOpen, Plus, Copy, Check, Trash2, AlertTriangle, Cloud, Pencil, ChevronUp, ChevronDown, Upload } from 'lucide-react'
 import type { Client, SessionData } from '@/lib/types'
 
 interface ClientDataInfo {
@@ -295,16 +295,7 @@ export default function ClientsPage() {
       <header className="bg-white shadow">
         <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
           <h1 className="text-xl font-bold">PDCA Dashboard</h1>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-600">{user?.name}</span>
-            <button
-              onClick={handleLogout}
-              className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
-            >
-              <LogOut size={16} />
-              ログアウト
-            </button>
-          </div>
+          <span className="text-sm text-gray-600">{user?.name}</span>
         </div>
       </header>
 

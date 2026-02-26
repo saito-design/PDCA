@@ -14,7 +14,50 @@ from datetime import datetime
 import json
 import os
 import base64
+import time
+import subprocess
 from io import BytesIO
+
+
+def ensure_file_downloaded(file_path: str, max_retries: int = 3) -> bool:
+    """OneDriveファイルがローカルにダウンロードされていることを確認
+
+    OneDriveのオンデマンド機能でクラウドのみのファイルは、
+    アクセス時に自動ダウンロードされる。この関数でそれをトリガーする。
+
+    Args:
+        file_path: ファイルパス
+        max_retries: 最大リトライ回数
+
+    Returns:
+        ダウンロード成功ならTrue
+    """
+    path = Path(file_path)
+
+    for attempt in range(max_retries):
+        try:
+            # ファイルサイズを取得することでダウンロードをトリガー
+            size = path.stat().st_size
+
+            # 実際にファイルを開けるか確認
+            with open(file_path, 'rb') as f:
+                f.read(1)
+            return True
+        except (OSError, IOError) as e:
+            if attempt < max_retries - 1:
+                # Windowsのattribコマンドでピン留め（常にデバイスに保存）を試行
+                try:
+                    subprocess.run(
+                        ['attrib', '-U', '+P', str(path)],
+                        capture_output=True,
+                        timeout=10
+                    )
+                except:
+                    pass
+                time.sleep(1 + attempt)  # 待機してリトライ
+            else:
+                return False
+    return False
 
 # Google Drive API（オプション）
 try:
@@ -150,6 +193,153 @@ def find_folder_by_name(service, folder_name: str, parent_id: str) -> str:
     except Exception as e:
         print(f'[ERROR] フォルダ検索失敗 ({folder_name}): {e}')
         return None
+
+
+def download_file_from_drive(service, file_id: str) -> bytes:
+    """Google DriveからファイルIDでファイルをダウンロード"""
+    if not service:
+        return None
+
+    try:
+        from googleapiclient.http import MediaIoBaseDownload
+
+        # ファイルメタデータ取得
+        meta = service.files().get(
+            fileId=file_id,
+            fields='name,mimeType',
+            supportsAllDrives=True
+        ).execute()
+
+        # スプレッドシートの場合はCSVでエクスポート
+        if 'spreadsheet' in meta.get('mimeType', ''):
+            request = service.files().export_media(fileId=file_id, mimeType='text/csv')
+        else:
+            request = service.files().get_media(fileId=file_id)
+
+        fh = BytesIO()
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while not done:
+            status, done = downloader.next_chunk()
+
+        return fh.getvalue()
+    except Exception as e:
+        print(f'[ERROR] ファイルダウンロード失敗 ({file_id}): {e}')
+        return None
+
+
+# ========== ジュネストリー店舗マスタ ==========
+# Google Driveに保存されている正式な店舗マスタ
+JUNESTORY_MASTER_FILES = {
+    'store_code_mapping': '1PygDvHV2dBrBCT2BLN3RKlxBm8mQtbaN',  # 店舗コードマッピング（CSV）
+    'stores': '1tvdlX073h1jjHgrhFMxs0U6TzgdM936t',              # 店舗マスタ（JSON）
+}
+
+
+def load_junestory_master(service=None) -> dict:
+    """ジュネストリーの店舗マスタをGoogle Driveから読み込み
+
+    Returns:
+        dict: {
+            'stores': {正式店番: {正式名称, 業態名, 坪数, 席数, 家賃, オープン日, ...}},
+            'mapping': {
+                'pl': {PL店舗名: 正式店番},
+                'pos': {POSコード: 正式店番},
+                'pos_name': {POS店舗名: 正式店番},
+                'fun': {fun店舗名: 正式店番},
+                'dinii': {dinii店舗名: 正式店番},
+            },
+            'company_name': '株式会社ジュネストリー',
+        }
+    """
+    if service is None:
+        service = get_drive_service()
+
+    if not service:
+        print('[WARN] Google Drive APIが利用できません。ローカルファイルを使用')
+        return None
+
+    result = {
+        'stores': {},
+        'mapping': {
+            'pl': {},
+            'pos': {},
+            'pos_name': {},
+            'fun': {},
+            'dinii': {},
+        },
+        'company_name': '株式会社ジュネストリー',
+    }
+
+    # 1. store_code_mapping.csv を読み込み
+    mapping_raw = download_file_from_drive(service, JUNESTORY_MASTER_FILES['store_code_mapping'])
+    if mapping_raw:
+        import csv
+        content = mapping_raw.decode('utf-8-sig')
+        reader = csv.DictReader(content.splitlines())
+        for row in reader:
+            store_code = row.get('正式店番', '').strip()
+            if not store_code or store_code in ['9999', '10000', '8888']:
+                continue  # 閉店・本社・共通部門はスキップ
+
+            # PLマッピング
+            pl_name = row.get('PL店舗名', '').strip()
+            if pl_name:
+                result['mapping']['pl'][pl_name] = store_code
+
+            # POSコードマッピング
+            pos_code = row.get('POSコード', '').strip()
+            if pos_code:
+                result['mapping']['pos'][pos_code] = store_code
+
+            # POS店舗名マッピング
+            pos_name = row.get('POS店舗名', '').strip()
+            if pos_name:
+                result['mapping']['pos_name'][pos_name] = store_code
+
+            # funマッピング
+            fun_name = row.get('fun店舗名', '').strip()
+            if fun_name:
+                result['mapping']['fun'][fun_name] = store_code
+
+            # diniiマッピング
+            dinii_name = row.get('dinii店舗名', '').strip()
+            if dinii_name:
+                result['mapping']['dinii'][dinii_name] = store_code
+
+    # 2. stores.json を読み込み
+    stores_raw = download_file_from_drive(service, JUNESTORY_MASTER_FILES['stores'])
+    if stores_raw:
+        stores_data = json.loads(stores_raw.decode('utf-8-sig'))
+        result['company_name'] = stores_data.get('company_name', '株式会社ジュネストリー')
+
+        for store in stores_data.get('stores', []):
+            store_code = str(store.get('正式店番', '')).strip()
+            if not store_code or store_code == '9999':
+                continue
+
+            # 数値変換（"-"は None に）
+            def parse_num(val):
+                if val in ['-', '', None, '坪数', '席数', '家賃（税抜き）']:
+                    return None
+                try:
+                    return float(val)
+                except:
+                    return None
+
+            result['stores'][store_code] = {
+                'store_code': store_code,
+                'name': store.get('正式名称', ''),
+                'brand': store.get('業態名', ''),
+                'original_name': store.get('元店舗名', ''),
+                'tsubo': parse_num(store.get('坪数')),
+                'seats': parse_num(store.get('席数')),
+                'rent': parse_num(store.get('家賃')),
+                'opened_at': store.get('オープン日') if store.get('オープン日') not in ['-', 'オープン日'] else None,
+            }
+
+    print(f'[INFO] 店舗マスタ読み込み: {len(result["stores"])}店舗')
+    return result
 
 
 def convert_shukuhaku_sheet(df: pd.DataFrame) -> list[dict]:

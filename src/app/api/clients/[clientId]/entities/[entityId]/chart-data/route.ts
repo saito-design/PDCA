@@ -57,13 +57,16 @@ async function findMasterDataFile(folderId: string): Promise<string | null> {
 }
 
 // 縦持ちデータを横持ち（グラフ用）に変換
-function pivotMasterData(data: MasterDataRecord[]): Record<string, unknown>[] {
-  // フィルタなし - 全データを使用
+function pivotMasterData(data: MasterDataRecord[], department?: string): Record<string, unknown>[] {
+  // 部門でフィルタ（指定がある場合）
+  const filtered = department
+    ? data.filter(row => row.部門 === department)
+    : data
 
   // 年月でグループ化
   const byMonth = new Map<string, Record<string, unknown>>()
 
-  for (const row of data) {
+  for (const row of filtered) {
     if (!byMonth.has(row.年月)) {
       byMonth.set(row.年月, { yearMonth: row.年月 })
     }
@@ -114,13 +117,25 @@ export async function GET(
       }
     }
 
+    // エンティティ（部門）情報を取得
+    interface Entity {
+      id: string
+      name: string
+    }
+    let entityName: string | undefined
+    const entitiesResult = await loadJsonFromFolder<Entity[]>('entities.json', clientFolderId as string)
+    if (entitiesResult) {
+      const entity = entitiesResult.data.find(e => e.id === entityId)
+      entityName = entity?.name
+    }
+
     // 1. まず *_master_data.json を探す（新形式）
     const masterFileName = await findMasterDataFile(clientFolderId as string)
     if (masterFileName) {
       const masterResult = await loadJsonFromFolder<MasterDataFile>(masterFileName, clientFolderId as string)
       if (masterResult && masterResult.data.data.length > 0) {
-        // 縦持ち → 横持ち変換（フィルタなし - 全データ）
-        const chartData = pivotMasterData(masterResult.data.data)
+        // 縦持ち → 横持ち変換（部門でフィルタ）
+        const chartData = pivotMasterData(masterResult.data.data, entityName)
 
         // 利用可能なカラムを抽出
         const columns = chartData.length > 0
